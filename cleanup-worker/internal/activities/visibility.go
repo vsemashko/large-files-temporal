@@ -72,32 +72,54 @@ func (a *VisibilityActivities) GetCompletedWorkflows(ctx context.Context, graceP
 func (a *VisibilityActivities) CheckIfArchived(ctx context.Context, wf workflows.WorkflowInfo) (bool, error) {
 	logger := activity.GetLogger(ctx)
 
-	logger.Info("Checking archive status", "workflow", wf.WorkflowID)
+	logger.Info("Checking archive status", "workflow", wf.WorkflowID, "runID", wf.RunID)
 
-	// Query the archive
-	// Note: This requires Temporal's archival feature to be enabled
-	req := &workflowservice.GetWorkflowExecutionHistoryRequest{
-		Namespace: wf.Namespace,
-		Execution: &enums.WorkflowExecution{
-			WorkflowId: wf.WorkflowID,
-			RunId:      wf.RunID,
-		},
-	}
-
-	// Try to get the workflow from the archive
-	iter := a.client.GetWorkflowHistory(ctx, wf.WorkflowID, wf.RunID, false, enums.HISTORY_EVENT_FILTER_TYPE_ALL_EVENT)
-
-	// If we can retrieve the history, the workflow might be archived
-	// This is a simplified check - in production, you might want to check specific archival metadata
-	hasHistory := iter.HasNext()
-
-	if hasHistory {
-		logger.Info("Workflow has history, may be archived", "workflow", wf.WorkflowID)
-		// For now, we'll assume if we can get the history after the grace period, it's likely archived
-		// In production, you'd check specific archival metadata or configuration
+	// Try to describe the workflow execution to check if it still exists in primary storage
+	_, err := a.client.DescribeWorkflowExecution(ctx, wf.WorkflowID, wf.RunID)
+	if err != nil {
+		// If workflow is not found, it may have been archived or removed
+		// To be conservative, assume it's archived and skip deletion
+		logger.Info("Workflow not found in primary storage, assuming archived", "workflow", wf.WorkflowID, "error", err)
 		return true, nil
 	}
 
-	logger.Info("Workflow does not appear to be archived", "workflow", wf.WorkflowID)
+	// Check if we can get the workflow history
+	// If archival is enabled, older workflows will have their history in archival storage
+	iter := a.client.GetWorkflowHistory(
+		ctx,
+		wf.WorkflowID,
+		wf.RunID,
+		false, // isLongPoll = false
+		enums.HISTORY_EVENT_FILTER_TYPE_ALL_EVENT,
+	)
+
+	// Verify we can read at least one history event
+	if !iter.HasNext() {
+		logger.Info("No history available, assuming not archived", "workflow", wf.WorkflowID)
+		return false, nil
+	}
+
+	// Try to read the first event
+	_, err = iter.Next()
+	if err != nil {
+		logger.Warn("Error reading history, assuming not archived", "workflow", wf.WorkflowID, "error", err)
+		return false, nil
+	}
+
+	// For a more accurate check, we should verify namespace archival configuration
+	// For now, we use a simple heuristic: workflows older than 30 days are likely archived
+	// This can be made configurable
+	const archivalAgeDays = 30
+	archivalThreshold := time.Now().Add(-archivalAgeDays * 24 * time.Hour)
+
+	if wf.CloseTime.Before(archivalThreshold) {
+		logger.Info("Workflow is older than archival threshold, assuming archived",
+			"workflow", wf.WorkflowID,
+			"closeTime", wf.CloseTime,
+			"threshold", archivalThreshold)
+		return true, nil
+	}
+
+	logger.Info("Workflow is not archived", "workflow", wf.WorkflowID, "closeTime", wf.CloseTime)
 	return false, nil
 }

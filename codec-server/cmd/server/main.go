@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/vsemashko/large-files-temporal/codec-server/internal/codec"
 	"github.com/vsemashko/large-files-temporal/codec-server/internal/config"
@@ -17,6 +18,7 @@ import (
 	"github.com/vsemashko/large-files-temporal/codec-server/internal/storage"
 	pb "github.com/vsemashko/large-files-temporal/codec-server/pkg/proto"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 )
 
@@ -48,8 +50,19 @@ func main() {
 	c := codec.NewCodec(s3Storage, cfg.PayloadSizeThreshold, cfg.S3Bucket)
 	log.Println("Codec initialized successfully")
 
-	// Create gRPC server
-	grpcServer := grpc.NewServer()
+	// Create gRPC server with limits and timeouts
+	grpcServer := grpc.NewServer(
+		grpc.MaxRecvMsgSize(100*1024*1024), // 100MB max receive
+		grpc.MaxSendMsgSize(100*1024*1024), // 100MB max send
+		grpc.ConnectionTimeout(30*time.Second),
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			MaxConnectionIdle:     15 * time.Minute,
+			MaxConnectionAge:      30 * time.Minute,
+			MaxConnectionAgeGrace: 5 * time.Minute,
+			Time:                  5 * time.Minute,
+			Timeout:               1 * time.Minute,
+		}),
+	)
 	codecServer := grpcserver.NewServer(c)
 	pb.RegisterPayloadCodecServer(grpcServer, codecServer)
 
@@ -82,8 +95,13 @@ func main() {
 
 	httpAddr := fmt.Sprintf(":%d", cfg.HTTPPort)
 	httpServer := &nethttp.Server{
-		Addr:    httpAddr,
-		Handler: httpMux,
+		Addr:              httpAddr,
+		Handler:           httpMux,
+		ReadTimeout:       30 * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20, // 1MB
 	}
 
 	log.Printf("HTTP server listening on %s", httpAddr)
@@ -102,8 +120,12 @@ func main() {
 
 	log.Println("Shutting down gracefully...")
 
+	// Create shutdown context with timeout
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
+
 	// Shutdown HTTP server
-	if err := httpServer.Shutdown(ctx); err != nil {
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		log.Printf("HTTP server shutdown error: %v", err)
 	}
 

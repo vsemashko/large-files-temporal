@@ -143,7 +143,11 @@ func (c *Codec) storePayload(ctx context.Context, payload *common.Payload, names
 		"archived":    "false",
 	}
 
-	if err := c.storage.Upload(ctx, key, data, metadata); err != nil {
+	// Add timeout for S3 upload operation
+	uploadCtx, uploadCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer uploadCancel()
+
+	if err := c.storage.Upload(uploadCtx, key, data, metadata); err != nil {
 		return nil, fmt.Errorf("failed to upload to S3: %w", err)
 	}
 
@@ -179,8 +183,11 @@ func (c *Codec) retrievePayload(ctx context.Context, refPayload *common.Payload)
 		return nil, fmt.Errorf("failed to unmarshal reference: %w", err)
 	}
 
-	// Download from S3
-	data, err := c.storage.Download(ctx, ref.Key)
+	// Download from S3 with timeout
+	downloadCtx, downloadCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer downloadCancel()
+
+	data, err := c.storage.Download(downloadCtx, ref.Key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download from S3: %w", err)
 	}

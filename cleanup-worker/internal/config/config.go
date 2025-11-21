@@ -1,8 +1,10 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -34,7 +36,7 @@ type Config struct {
 
 // LoadConfig loads configuration from environment variables
 func LoadConfig() *Config {
-	return &Config{
+	cfg := &Config{
 		TemporalAddress:          getEnv("TEMPORAL_ADDRESS", "localhost:7233"),
 		TemporalNamespace:        getEnv("TEMPORAL_NAMESPACE", "default"),
 		S3Bucket:                 getEnv("S3_BUCKET", "temporal-large-payloads"),
@@ -49,6 +51,63 @@ func LoadConfig() *Config {
 		MaxWorkflowsPerBatch:     getEnvAsInt("MAX_WORKFLOWS_PER_BATCH", 100),
 		LogLevel:                 getEnv("LOG_LEVEL", "info"),
 	}
+
+	// Validate configuration
+	if err := cfg.Validate(); err != nil {
+		panic(fmt.Sprintf("Invalid configuration: %v", err))
+	}
+
+	return cfg
+}
+
+// Validate validates the configuration
+func (c *Config) Validate() error {
+	// Validate Temporal configuration
+	if c.TemporalAddress == "" {
+		return fmt.Errorf("Temporal address is required")
+	}
+	if c.TemporalNamespace == "" {
+		return fmt.Errorf("Temporal namespace is required")
+	}
+
+	// Validate S3 configuration
+	if c.S3Bucket == "" {
+		return fmt.Errorf("S3 bucket name is required")
+	}
+	if c.S3Region == "" {
+		return fmt.Errorf("S3 region is required")
+	}
+
+	// Validate cleanup configuration
+	if c.CleanupGracePeriodDays < 0 {
+		return fmt.Errorf("cleanup grace period must be non-negative: %d", c.CleanupGracePeriodDays)
+	}
+	if c.CleanupGracePeriodDays > 365 {
+		return fmt.Errorf("cleanup grace period too large: %d days (maximum: 365)", c.CleanupGracePeriodDays)
+	}
+
+	if c.MaxWorkflowsPerBatch < 1 {
+		return fmt.Errorf("max workflows per batch must be positive: %d", c.MaxWorkflowsPerBatch)
+	}
+	if c.MaxWorkflowsPerBatch > 10000 {
+		return fmt.Errorf("max workflows per batch too large: %d (maximum: 10000)", c.MaxWorkflowsPerBatch)
+	}
+
+	// Validate log level
+	validLogLevels := []string{"debug", "info", "warn", "error"}
+	logLevel := strings.ToLower(c.LogLevel)
+	valid := false
+	for _, level := range validLogLevels {
+		if logLevel == level {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return fmt.Errorf("invalid log level: %s (must be one of: %v)", c.LogLevel, validLogLevels)
+	}
+
+	return nil
 }
 
 // GetGracePeriod returns the grace period as a duration

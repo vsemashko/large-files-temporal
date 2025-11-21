@@ -1,8 +1,10 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // Config holds the codec server configuration
@@ -30,7 +32,7 @@ type Config struct {
 
 // LoadConfig loads configuration from environment variables
 func LoadConfig() *Config {
-	return &Config{
+	cfg := &Config{
 		GRPCPort:             getEnvAsInt("CODEC_GRPC_PORT", 9090),
 		HTTPPort:             getEnvAsInt("CODEC_HTTP_PORT", 8080),
 		PayloadSizeThreshold: getEnvAsInt64("PAYLOAD_SIZE_THRESHOLD_BYTES", 2*1024*1024), // 2MB default
@@ -42,6 +44,61 @@ func LoadConfig() *Config {
 		AWSSecretAccessKey:   getEnv("AWS_SECRET_ACCESS_KEY", ""),
 		LogLevel:             getEnv("LOG_LEVEL", "info"),
 	}
+
+	// Validate configuration
+	if err := cfg.Validate(); err != nil {
+		panic(fmt.Sprintf("Invalid configuration: %v", err))
+	}
+
+	return cfg
+}
+
+// Validate validates the configuration
+func (c *Config) Validate() error {
+	// Validate ports
+	if c.GRPCPort < 1 || c.GRPCPort > 65535 {
+		return fmt.Errorf("invalid GRPC port: %d (must be 1-65535)", c.GRPCPort)
+	}
+	if c.HTTPPort < 1 || c.HTTPPort > 65535 {
+		return fmt.Errorf("invalid HTTP port: %d (must be 1-65535)", c.HTTPPort)
+	}
+	if c.GRPCPort == c.HTTPPort {
+		return fmt.Errorf("GRPC and HTTP ports must be different")
+	}
+
+	// Validate payload threshold
+	const minThreshold = 1024           // 1KB minimum
+	const maxThreshold = 100 * 1024 * 1024 // 100MB maximum
+	if c.PayloadSizeThreshold < minThreshold {
+		return fmt.Errorf("payload threshold too small: %d bytes (minimum: %d)", c.PayloadSizeThreshold, minThreshold)
+	}
+	if c.PayloadSizeThreshold > maxThreshold {
+		return fmt.Errorf("payload threshold too large: %d bytes (maximum: %d)", c.PayloadSizeThreshold, maxThreshold)
+	}
+
+	// Validate S3 configuration
+	if c.S3Bucket == "" {
+		return fmt.Errorf("S3 bucket name is required")
+	}
+	if c.S3Region == "" {
+		return fmt.Errorf("S3 region is required")
+	}
+
+	// Validate log level
+	validLogLevels := []string{"debug", "info", "warn", "error"}
+	logLevel := strings.ToLower(c.LogLevel)
+	valid := false
+	for _, level := range validLogLevels {
+		if logLevel == level {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return fmt.Errorf("invalid log level: %s (must be one of: %v)", c.LogLevel, validLogLevels)
+	}
+
+	return nil
 }
 
 func getEnv(key, defaultValue string) string {
