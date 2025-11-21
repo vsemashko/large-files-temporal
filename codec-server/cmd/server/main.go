@@ -78,6 +78,7 @@ func main() {
 	httpMux.HandleFunc("/encode", httpSrv.HandleEncode)
 	httpMux.HandleFunc("/decode", httpSrv.HandleDecode)
 	httpMux.HandleFunc("/health", httpSrv.HandleHealth)
+	httpMux.HandleFunc("/metrics", httpSrv.HandleMetrics)
 
 	httpAddr := fmt.Sprintf(":%d", cfg.HTTPPort)
 	httpServer := &nethttp.Server{

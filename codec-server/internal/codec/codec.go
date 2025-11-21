@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"time"
 
+	"github.com/vsemashko/large-files-temporal/codec-server/internal/metrics"
 	"github.com/vsemashko/large-files-temporal/codec-server/internal/storage"
 	"go.temporal.io/api/common/v1"
 	"google.golang.org/protobuf/proto"
@@ -31,6 +33,12 @@ func NewCodec(s storage.Storage, threshold int64, bucket string) *Codec {
 
 // Encode encodes payloads, storing large ones in S3
 func (c *Codec) Encode(ctx context.Context, payloads []*common.Payload, namespace, workflowID, runID string) ([]*common.Payload, error) {
+	start := time.Now()
+	var err error
+	defer func() {
+		metrics.GetMetrics().RecordEncode(len(payloads), time.Since(start), err != nil)
+	}()
+
 	if len(payloads) == 0 {
 		return payloads, nil
 	}
@@ -54,9 +62,10 @@ func (c *Codec) Encode(ctx context.Context, payloads []*common.Payload, namespac
 
 		// Payload is too large, store in S3
 		log.Printf("Payload %d is %d bytes (threshold: %d), storing in S3", i, size, c.threshold)
-		ref, err := c.storePayload(ctx, payload, namespace, workflowID, runID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to store payload %d: %w", i, err)
+		ref, storeErr := c.storePayload(ctx, payload, namespace, workflowID, runID)
+		if storeErr != nil {
+			err = storeErr
+			return nil, fmt.Errorf("failed to store payload %d: %w", i, storeErr)
 		}
 
 		encoded[i] = ref
@@ -67,6 +76,12 @@ func (c *Codec) Encode(ctx context.Context, payloads []*common.Payload, namespac
 
 // Decode decodes payloads, retrieving large ones from S3
 func (c *Codec) Decode(ctx context.Context, payloads []*common.Payload) ([]*common.Payload, error) {
+	start := time.Now()
+	var err error
+	defer func() {
+		metrics.GetMetrics().RecordDecode(len(payloads), time.Since(start), err != nil)
+	}()
+
 	if len(payloads) == 0 {
 		return payloads, nil
 	}
@@ -87,9 +102,10 @@ func (c *Codec) Decode(ctx context.Context, payloads []*common.Payload) ([]*comm
 
 		// S3 reference, retrieve from S3
 		log.Printf("Payload %d is S3 reference, retrieving from S3", i)
-		original, err := c.retrievePayload(ctx, payload)
-		if err != nil {
-			return nil, fmt.Errorf("failed to retrieve payload %d: %w", i, err)
+		original, retrieveErr := c.retrievePayload(ctx, payload)
+		if retrieveErr != nil {
+			err = retrieveErr
+			return nil, fmt.Errorf("failed to retrieve payload %d: %w", i, retrieveErr)
 		}
 
 		decoded[i] = original

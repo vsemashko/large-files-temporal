@@ -5,12 +5,14 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/vsemashko/large-files-temporal/codec-server/internal/metrics"
 )
 
 // Storage defines the interface for storing and retrieving payloads
@@ -103,6 +105,8 @@ func (s *S3Storage) ensureBucket(ctx context.Context) error {
 
 // Upload uploads data to S3
 func (s *S3Storage) Upload(ctx context.Context, key string, data []byte, metadata map[string]string) error {
+	start := time.Now()
+
 	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:   aws.String(s.bucket),
 		Key:      aws.String(key),
@@ -110,6 +114,8 @@ func (s *S3Storage) Upload(ctx context.Context, key string, data []byte, metadat
 		Metadata: metadata,
 		ServerSideEncryption: types.ServerSideEncryptionAes256,
 	})
+
+	metrics.GetMetrics().RecordS3Upload(int64(len(data)), time.Since(start), err != nil)
 
 	if err != nil {
 		return fmt.Errorf("failed to upload to S3: %w", err)
@@ -120,21 +126,26 @@ func (s *S3Storage) Upload(ctx context.Context, key string, data []byte, metadat
 
 // Download downloads data from S3
 func (s *S3Storage) Download(ctx context.Context, key string) ([]byte, error) {
+	start := time.Now()
+
 	result, err := s.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
 	})
 
 	if err != nil {
+		metrics.GetMetrics().RecordS3Download(0, time.Since(start), true)
 		return nil, fmt.Errorf("failed to download from S3: %w", err)
 	}
 	defer result.Body.Close()
 
 	data, err := io.ReadAll(result.Body)
 	if err != nil {
+		metrics.GetMetrics().RecordS3Download(0, time.Since(start), true)
 		return nil, fmt.Errorf("failed to read S3 object: %w", err)
 	}
 
+	metrics.GetMetrics().RecordS3Download(int64(len(data)), time.Since(start), false)
 	return data, nil
 }
 
@@ -185,19 +196,32 @@ func (s *S3Storage) DeletePrefix(ctx context.Context, prefix string) (int, error
 
 // ListObjects lists all objects with the given prefix
 func (s *S3Storage) ListObjects(ctx context.Context, prefix string) ([]string, error) {
-	result, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-		Bucket: aws.String(s.bucket),
-		Prefix: aws.String(prefix),
-	})
+	var allKeys []string
+	var continuationToken *string
 
-	if err != nil {
-		return nil, fmt.Errorf("failed to list objects: %w", err)
+	for {
+		input := &s3.ListObjectsV2Input{
+			Bucket:            aws.String(s.bucket),
+			Prefix:            aws.String(prefix),
+			ContinuationToken: continuationToken,
+		}
+
+		result, err := s.client.ListObjectsV2(ctx, input)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list objects: %w", err)
+		}
+
+		for _, obj := range result.Contents {
+			if obj.Key != nil {
+				allKeys = append(allKeys, *obj.Key)
+			}
+		}
+
+		if !aws.ToBool(result.IsTruncated) {
+			break
+		}
+		continuationToken = result.NextContinuationToken
 	}
 
-	keys := make([]string, len(result.Contents))
-	for i, obj := range result.Contents {
-		keys[i] = *obj.Key
-	}
-
-	return keys, nil
+	return allKeys, nil
 }

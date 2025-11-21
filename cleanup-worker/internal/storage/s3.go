@@ -63,21 +63,34 @@ func NewS3Client(ctx context.Context, bucket, region, endpoint, accessKeyID, sec
 
 // ListObjectsByPrefix lists all objects with the given prefix
 func (c *S3Client) ListObjectsByPrefix(ctx context.Context, prefix string) ([]string, error) {
-	result, err := c.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-		Bucket: aws.String(c.bucket),
-		Prefix: aws.String(prefix),
-	})
+	var allKeys []string
+	var continuationToken *string
 
-	if err != nil {
-		return nil, fmt.Errorf("failed to list objects: %w", err)
+	for {
+		input := &s3.ListObjectsV2Input{
+			Bucket:            aws.String(c.bucket),
+			Prefix:            aws.String(prefix),
+			ContinuationToken: continuationToken,
+		}
+
+		result, err := c.client.ListObjectsV2(ctx, input)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list objects: %w", err)
+		}
+
+		for _, obj := range result.Contents {
+			if obj.Key != nil {
+				allKeys = append(allKeys, *obj.Key)
+			}
+		}
+
+		if !aws.ToBool(result.IsTruncated) {
+			break
+		}
+		continuationToken = result.NextContinuationToken
 	}
 
-	keys := make([]string, len(result.Contents))
-	for i, obj := range result.Contents {
-		keys[i] = *obj.Key
-	}
-
-	return keys, nil
+	return allKeys, nil
 }
 
 // DeleteObjects deletes multiple objects
