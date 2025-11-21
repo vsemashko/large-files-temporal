@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	nethttp "net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -12,6 +13,7 @@ import (
 	"github.com/vsemashko/large-files-temporal/codec-server/internal/codec"
 	"github.com/vsemashko/large-files-temporal/codec-server/internal/config"
 	grpcserver "github.com/vsemashko/large-files-temporal/codec-server/internal/grpc"
+	httpserver "github.com/vsemashko/large-files-temporal/codec-server/internal/http"
 	"github.com/vsemashko/large-files-temporal/codec-server/internal/storage"
 	pb "github.com/vsemashko/large-files-temporal/codec-server/pkg/proto"
 	"google.golang.org/grpc"
@@ -63,10 +65,32 @@ func main() {
 
 	log.Printf("gRPC server listening on %s", grpcAddr)
 
-	// Start server in a goroutine
+	// Start gRPC server in a goroutine
 	go func() {
 		if err := grpcServer.Serve(listener); err != nil {
 			log.Fatalf("Failed to serve gRPC: %v", err)
+		}
+	}()
+
+	// Create HTTP server for TypeScript workers
+	httpSrv := httpserver.NewServer(c)
+	httpMux := nethttp.NewServeMux()
+	httpMux.HandleFunc("/encode", httpSrv.HandleEncode)
+	httpMux.HandleFunc("/decode", httpSrv.HandleDecode)
+	httpMux.HandleFunc("/health", httpSrv.HandleHealth)
+
+	httpAddr := fmt.Sprintf(":%d", cfg.HTTPPort)
+	httpServer := &nethttp.Server{
+		Addr:    httpAddr,
+		Handler: httpMux,
+	}
+
+	log.Printf("HTTP server listening on %s", httpAddr)
+
+	// Start HTTP server in a goroutine
+	go func() {
+		if err := httpServer.ListenAndServe(); err != nil && err != nethttp.ErrServerClosed {
+			log.Fatalf("Failed to serve HTTP: %v", err)
 		}
 	}()
 
@@ -76,6 +100,14 @@ func main() {
 	<-sigChan
 
 	log.Println("Shutting down gracefully...")
+
+	// Shutdown HTTP server
+	if err := httpServer.Shutdown(ctx); err != nil {
+		log.Printf("HTTP server shutdown error: %v", err)
+	}
+
+	// Shutdown gRPC server
 	grpcServer.GracefulStop()
+
 	log.Println("Server stopped")
 }

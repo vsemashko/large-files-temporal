@@ -1,0 +1,115 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cleanup-worker-config
+  namespace: temporal
+data:
+  TEMPORAL_ADDRESS: "temporal-frontend.temporal:7233"
+  TEMPORAL_NAMESPACE: "default"
+  S3_BUCKET: "temporal-large-payloads-prod"
+  S3_REGION: "us-east-1"
+  CLEANUP_ENABLED: "true"
+  CLEANUP_SCHEDULE: "0 2 * * *"
+  CLEANUP_GRACE_PERIOD_DAYS: "7"
+  CHECK_ARCHIVE_BEFORE_DELETE: "true"
+  MAX_WORKFLOWS_PER_BATCH: "100"
+  LOG_LEVEL: "info"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cleanup-worker
+  namespace: temporal
+  labels:
+    app: cleanup-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cleanup-worker
+  template:
+    metadata:
+      labels:
+        app: cleanup-worker
+    spec:
+      serviceAccountName: cleanup-worker-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: cleanup-worker
+          image: your-registry/temporal-cleanup-worker:latest
+          imagePullPolicy: Always
+          env:
+            - name: TEMPORAL_ADDRESS
+              valueFrom:
+                configMapKeyRef:
+                  name: cleanup-worker-config
+                  key: TEMPORAL_ADDRESS
+            - name: TEMPORAL_NAMESPACE
+              valueFrom:
+                configMapKeyRef:
+                  name: cleanup-worker-config
+                  key: TEMPORAL_NAMESPACE
+            - name: S3_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: cleanup-worker-config
+                  key: S3_BUCKET
+            - name: S3_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: cleanup-worker-config
+                  key: S3_REGION
+            - name: CLEANUP_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: cleanup-worker-config
+                  key: CLEANUP_ENABLED
+            - name: CLEANUP_SCHEDULE
+              valueFrom:
+                configMapKeyRef:
+                  name: cleanup-worker-config
+                  key: CLEANUP_SCHEDULE
+            - name: CLEANUP_GRACE_PERIOD_DAYS
+              valueFrom:
+                configMapKeyRef:
+                  name: cleanup-worker-config
+                  key: CLEANUP_GRACE_PERIOD_DAYS
+            - name: CHECK_ARCHIVE_BEFORE_DELETE
+              valueFrom:
+                configMapKeyRef:
+                  name: cleanup-worker-config
+                  key: CHECK_ARCHIVE_BEFORE_DELETE
+            - name: MAX_WORKFLOWS_PER_BATCH
+              valueFrom:
+                configMapKeyRef:
+                  name: cleanup-worker-config
+                  key: MAX_WORKFLOWS_PER_BATCH
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: cleanup-worker-config
+                  key: LOG_LEVEL
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cleanup-worker-sa
+  namespace: temporal
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/cleanup-worker-role
