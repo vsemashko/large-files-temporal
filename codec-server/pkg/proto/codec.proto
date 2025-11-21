@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package temporal.codec;
+
+option go_package = "github.com/vsemashko/large-files-temporal/codec-server/pkg/proto;proto";
+
+// PayloadCodec service for encoding and decoding Temporal payloads
+service PayloadCodec {
+  // Encode encodes payloads before storing in Temporal
+  rpc Encode(EncodeRequest) returns (EncodeResponse) {}
+
+  // Decode decodes payloads when retrieving from Temporal
+  rpc Decode(DecodeRequest) returns (DecodeResponse) {}
+}
+
+// EncodeRequest contains payloads to be encoded
+message EncodeRequest {
+  repeated bytes payloads = 1;
+  string namespace = 2;
+  string workflow_id = 3;
+  string run_id = 4;
+}
+
+// EncodeResponse contains encoded payloads
+message EncodeResponse {
+  repeated bytes encoded_payloads = 1;
+}
+
+// DecodeRequest contains payloads to be decoded
+message DecodeRequest {
+  repeated bytes payloads = 1;
+}
+
+// DecodeResponse contains decoded payloads
+message DecodeResponse {
+  repeated bytes decoded_payloads = 1;
+}

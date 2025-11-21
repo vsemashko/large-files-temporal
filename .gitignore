@@ -1,0 +1,57 @@
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+codec-server
+cleanup-worker
+worker
+client
+
+# Test binary
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+
+# Generated files
+*.pb.go
+pkg/proto/*.pb.go
+
+# Dependencies
+vendor/
+node_modules/
+
+# Build output
+lib/
+dist/
+*.tsbuildinfo
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Docker
+docker-compose.override.yml
+
+# Data directories
+data/
+localstack-data/
+postgres-data/

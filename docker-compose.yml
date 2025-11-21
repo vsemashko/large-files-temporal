@@ -1,0 +1,167 @@
+version: '3.8'
+
+services:
+  # PostgreSQL database for Temporal
+  postgresql:
+    image: postgres:14
+    environment:
+      POSTGRES_PASSWORD: temporal
+      POSTGRES_USER: temporal
+      POSTGRES_DB: temporal
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - temporal-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Temporal server
+  temporal:
+    image: temporalio/auto-setup:latest
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    environment:
+      - DB=postgresql
+      - DB_PORT=5432
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=temporal
+      - POSTGRES_SEEDS=postgresql
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
+    ports:
+      - "7233:7233"  # gRPC
+      - "8233:8233"  # Web UI
+    networks:
+      - temporal-network
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # LocalStack for S3
+  localstack:
+    image: localstack/localstack:latest
+    environment:
+      - SERVICES=s3
+      - DEBUG=1
+      - DATA_DIR=/tmp/localstack/data
+      - EDGE_PORT=4566
+    ports:
+      - "4566:4566"
+    volumes:
+      - localstack-data:/tmp/localstack
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - temporal-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Codec Server
+  codec-server:
+    build:
+      context: ./codec-server
+      dockerfile: Dockerfile
+    depends_on:
+      localstack:
+        condition: service_healthy
+    environment:
+      - CODEC_GRPC_PORT=9090
+      - CODEC_HTTP_PORT=8080
+      - PAYLOAD_SIZE_THRESHOLD_BYTES=2097152  # 2MB
+      - COMPRESSION_ENABLED=true
+      - S3_BUCKET=temporal-large-payloads
+      - S3_REGION=us-east-1
+      - S3_ENDPOINT=http://localstack:4566
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - LOG_LEVEL=info
+    ports:
+      - "9090:9090"  # gRPC
+      - "8080:8080"  # HTTP (for TypeScript workers)
+    networks:
+      - temporal-network
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "9090"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Cleanup Worker
+  cleanup-worker:
+    build:
+      context: ./cleanup-worker
+      dockerfile: Dockerfile
+    depends_on:
+      temporal:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_NAMESPACE=default
+      - S3_BUCKET=temporal-large-payloads
+      - S3_REGION=us-east-1
+      - S3_ENDPOINT=http://localstack:4566
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - CLEANUP_ENABLED=true
+      - CLEANUP_SCHEDULE=0 */6 * * *  # Every 6 hours
+      - CLEANUP_GRACE_PERIOD_DAYS=7
+      - CHECK_ARCHIVE_BEFORE_DELETE=true
+      - MAX_WORKFLOWS_PER_BATCH=100
+      - LOG_LEVEL=info
+    networks:
+      - temporal-network
+
+  # Go Worker Sample
+  go-worker:
+    build:
+      context: ./samples/go-worker
+      dockerfile: Dockerfile
+    depends_on:
+      temporal:
+        condition: service_healthy
+      codec-server:
+        condition: service_healthy
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_NAMESPACE=default
+      - CODEC_SERVER_URL=codec-server:9090
+      - TASK_QUEUE=large-files-task-queue
+    networks:
+      - temporal-network
+
+  # TypeScript Worker Sample
+  typescript-worker:
+    build:
+      context: ./samples/typescript-worker
+      dockerfile: Dockerfile
+    depends_on:
+      temporal:
+        condition: service_healthy
+      codec-server:
+        condition: service_healthy
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_NAMESPACE=default
+      - CODEC_SERVER_URL=http://codec-server:8080
+      - TASK_QUEUE=large-files-task-queue
+    networks:
+      - temporal-network
+
+volumes:
+  postgres-data:
+  localstack-data:
+
+networks:
+  temporal-network:
+    driver: bridge
