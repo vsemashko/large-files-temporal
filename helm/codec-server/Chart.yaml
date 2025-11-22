@@ -1,0 +1,17 @@
+apiVersion: v2
+name: codec-server
+description: Temporal Large Files Codec Server - Remote codec with S3 storage for payloads >2MB
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - temporal
+  - codec
+  - s3
+  - workflow
+home: https://github.com/vsemashko/large-files-temporal
+sources:
+  - https://github.com/vsemashko/large-files-temporal
+maintainers:
+  - name: Platform Team
+    email: platform@example.com

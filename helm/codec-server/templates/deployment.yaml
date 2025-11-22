@@ -1,0 +1,134 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "codec-server.fullname" . }}
+  labels:
+    {{- include "codec-server.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "codec-server.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "codec-server.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "codec-server.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: codec-server
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - name: grpc
+          containerPort: {{ .Values.config.grpcPort }}
+          protocol: TCP
+        - name: http
+          containerPort: {{ .Values.config.httpPort }}
+          protocol: TCP
+        env:
+        - name: S3_BUCKET
+          value: {{ .Values.config.s3.bucket | quote }}
+        - name: S3_REGION
+          value: {{ .Values.config.s3.region | quote }}
+        {{- if .Values.config.s3.endpoint }}
+        - name: S3_ENDPOINT
+          value: {{ .Values.config.s3.endpoint | quote }}
+        {{- end }}
+        {{- if .Values.config.s3.existingSecret }}
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.config.s3.existingSecret }}
+              key: {{ .Values.config.s3.existingSecretAccessKeyIdKey }}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.config.s3.existingSecret }}
+              key: {{ .Values.config.s3.existingSecretSecretAccessKeyKey }}
+        {{- else if and .Values.config.s3.accessKeyId .Values.config.s3.secretAccessKey }}
+        - name: AWS_ACCESS_KEY_ID
+          value: {{ .Values.config.s3.accessKeyId | quote }}
+        - name: AWS_SECRET_ACCESS_KEY
+          value: {{ .Values.config.s3.secretAccessKey | quote }}
+        {{- end }}
+        - name: LARGE_PAYLOAD_THRESHOLD
+          value: {{ .Values.config.largePayloadThreshold | quote }}
+        - name: GRPC_PORT
+          value: {{ .Values.config.grpcPort | quote }}
+        - name: HTTP_PORT
+          value: {{ .Values.config.httpPort | quote }}
+        {{- if .Values.config.tls.enabled }}
+        - name: CODEC_TLS_ENABLED
+          value: "true"
+        - name: CODEC_TLS_CERT_FILE
+          value: "/etc/codec-server/tls/tls.crt"
+        - name: CODEC_TLS_KEY_FILE
+          value: "/etc/codec-server/tls/tls.key"
+        {{- end }}
+        {{- if .Values.config.auth.enabled }}
+        {{- if .Values.config.auth.existingSecret }}
+        - name: CODEC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.config.auth.existingSecret }}
+              key: {{ .Values.config.auth.existingSecretKey }}
+        {{- else if .Values.config.auth.apiKey }}
+        - name: CODEC_API_KEY
+          value: {{ .Values.config.auth.apiKey | quote }}
+        {{- end }}
+        {{- end }}
+        {{- if .Values.config.rateLimit.enabled }}
+        - name: RATE_LIMIT_ENABLED
+          value: "true"
+        - name: RATE_LIMIT_RPS
+          value: {{ .Values.config.rateLimit.rps | quote }}
+        - name: RATE_LIMIT_BURST
+          value: {{ .Values.config.rateLimit.burst | quote }}
+        {{- end }}
+        livenessProbe:
+          {{- toYaml .Values.livenessProbe | nindent 12 }}
+        readinessProbe:
+          {{- toYaml .Values.readinessProbe | nindent 12 }}
+        resources:
+          {{- toYaml .Values.resources | nindent 12 }}
+        {{- if .Values.config.tls.enabled }}
+        volumeMounts:
+        - name: tls
+          mountPath: /etc/codec-server/tls
+          readOnly: true
+        {{- end }}
+      {{- if .Values.config.tls.enabled }}
+      volumes:
+      - name: tls
+        secret:
+          secretName: {{ .Values.config.tls.existingSecret | default (printf "%s-tls" (include "codec-server.fullname" .)) }}
+          defaultMode: 0400
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

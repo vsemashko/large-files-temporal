@@ -1,0 +1,194 @@
+# Default values for codec-server
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 3
+
+image:
+  repository: ghcr.io/vsemashko/large-files-temporal/codec-server
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+  prometheus.io/path: "/metrics"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+
+service:
+  type: ClusterIP
+  grpcPort: 9090
+  httpPort: 8080
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  hosts:
+    - host: codec-server.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: codec-server-tls
+  #    hosts:
+  #      - codec-server.local
+
+resources:
+  limits:
+    cpu: 2000m
+    memory: 4Gi
+  requests:
+    cpu: 500m
+    memory: 1Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - codec-server
+          topologyKey: kubernetes.io/hostname
+
+# Codec server configuration
+config:
+  # S3 configuration
+  s3:
+    bucket: "temporal-large-payloads"
+    region: "us-east-1"
+    endpoint: ""  # Leave empty for AWS S3, set for LocalStack/MinIO
+    # AWS credentials (prefer IAM roles in production)
+    accessKeyId: ""
+    secretAccessKey: ""
+    # Use existing secret for credentials
+    existingSecret: ""
+    existingSecretAccessKeyIdKey: "access-key-id"
+    existingSecretSecretAccessKeyKey: "secret-access-key"
+
+  # Codec configuration
+  largePayloadThreshold: 2097152  # 2MB in bytes
+  grpcPort: 9090
+  httpPort: 8080
+
+  # TLS configuration
+  tls:
+    enabled: false
+    # Existing secret containing tls.crt and tls.key
+    existingSecret: ""
+    # Or provide cert and key directly (base64 encoded)
+    cert: ""
+    key: ""
+
+  # Authentication
+  auth:
+    enabled: false
+    # Existing secret containing api-key
+    existingSecret: ""
+    existingSecretKey: "api-key"
+    # Or provide API key directly
+    apiKey: ""
+
+  # Rate limiting
+  rateLimit:
+    enabled: true
+    rps: 500
+    burst: 1000
+
+# Monitoring
+monitoring:
+  enabled: true
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+  prometheusRule:
+    enabled: false
+    # Add alert rules here
+
+# Probes
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 2
+
+# Environment-specific overrides
+# These can be overridden in separate values files
+
+# Development environment (values-dev.yaml)
+# replicaCount: 1
+# autoscaling.enabled: false
+# config.tls.enabled: false
+# config.auth.enabled: false
+
+# Staging environment (values-staging.yaml)
+# replicaCount: 2
+# config.tls.enabled: true
+# config.auth.enabled: true
+
+# Production environment (values-prod.yaml)
+# replicaCount: 3
+# config.tls.enabled: true
+# config.auth.enabled: true
+# monitoring.serviceMonitor.enabled: true
+# monitoring.prometheusRule.enabled: true
