@@ -1,0 +1,107 @@
+version: 2
+updates:
+  # Go dependencies for codec-server
+  - package-ecosystem: "gomod"
+    directory: "/codec-server"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "go"
+      - "codec-server"
+    commit-message:
+      prefix: "chore(codec-server)"
+      include: "scope"
+
+  # Go dependencies for cleanup-worker
+  - package-ecosystem: "gomod"
+    directory: "/cleanup-worker"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "go"
+      - "cleanup-worker"
+    commit-message:
+      prefix: "chore(cleanup-worker)"
+      include: "scope"
+
+  # Go dependencies for go-worker sample
+  - package-ecosystem: "gomod"
+    directory: "/samples/go-worker"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "go"
+      - "samples"
+    commit-message:
+      prefix: "chore(go-worker)"
+      include: "scope"
+
+  # npm dependencies for TypeScript worker sample
+  - package-ecosystem: "npm"
+    directory: "/samples/typescript-worker"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "npm"
+      - "samples"
+    commit-message:
+      prefix: "chore(typescript-worker)"
+      include: "scope"
+    versioning-strategy: increase
+
+  # Docker base images
+  - package-ecosystem: "docker"
+    directory: "/codec-server"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "chore(docker)"
+
+  - package-ecosystem: "docker"
+    directory: "/cleanup-worker"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "chore(docker)"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "chore(ci)"

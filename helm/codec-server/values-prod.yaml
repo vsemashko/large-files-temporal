@@ -1,0 +1,140 @@
+# Production environment values
+# Override default values.yaml for production deployments
+
+# Three replicas minimum for production HA
+replicaCount: 3
+
+image:
+  pullPolicy: IfNotPresent
+  # Always use specific version tags in production
+  tag: ""  # Override with specific version: --set image.tag=v1.2.3
+
+# Aggressive autoscaling for production
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Strict PDB for production
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2  # Always keep at least 2 pods running
+
+# Production-grade resources
+resources:
+  limits:
+    cpu: 2000m
+    memory: 4Gi
+  requests:
+    cpu: 500m
+    memory: 1Gi
+
+# Production configuration
+config:
+  s3:
+    bucket: "temporal-large-payloads-prod"
+    region: "us-east-1"
+    # MUST use IAM role in production (never static credentials)
+    # existingSecret should only be used for cross-account access
+    # Prefer IRSA (IAM Roles for Service Accounts) in EKS
+
+  # TLS REQUIRED in production
+  tls:
+    enabled: true
+    existingSecret: "codec-server-tls"
+
+  # Authentication REQUIRED in production
+  auth:
+    enabled: true
+    existingSecret: "codec-server-api-key"
+
+  # Production rate limits
+  rateLimit:
+    enabled: true
+    rps: 500
+    burst: 1000
+
+# Strict health checks for production
+livenessProbe:
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 2
+
+# REQUIRED: Spread across availability zones
+affinity:
+  podAntiAffinity:
+    # Use required (hard) anti-affinity in production
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+                - codec-server
+        topologyKey: topology.kubernetes.io/zone
+    # Also prefer spreading across nodes
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - codec-server
+          topologyKey: kubernetes.io/hostname
+
+# Production monitoring (REQUIRED)
+monitoring:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    scrapeTimeout: 10s
+  prometheusRule:
+    enabled: true
+
+# Service annotations for production
+service:
+  annotations:
+    # Example: AWS Load Balancer annotations
+    # service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    # service.beta.kubernetes.io/aws-load-balancer-internal: "true"
+
+# Production security context (strict)
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+  runAsUser: 1000
+
+# Node selection for production workloads (example)
+# nodeSelector:
+#   workload-type: "stateless"
+#   environment: "production"
+
+# Tolerations for dedicated nodes (example)
+# tolerations:
+#   - key: "workload-type"
+#     operator: "Equal"
+#     value: "codec-server"
+#     effect: "NoSchedule"

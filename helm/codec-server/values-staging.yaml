@@ -1,0 +1,90 @@
+# Staging environment values
+# Override default values.yaml for staging deployments
+
+# Two replicas for staging
+replicaCount: 2
+
+image:
+  pullPolicy: IfNotPresent
+  # Use specific version tags in staging
+  tag: ""  # Will use Chart appVersion
+
+# Enable autoscaling with conservative limits
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 75
+  targetMemoryUtilizationPercentage: 85
+
+# Enable PDB
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Moderate resources for staging
+resources:
+  limits:
+    cpu: 1500m
+    memory: 3Gi
+  requests:
+    cpu: 400m
+    memory: 1Gi
+
+# Staging configuration
+config:
+  s3:
+    bucket: "temporal-large-payloads-staging"
+    region: "us-east-1"
+    # Use IAM role in staging (no credentials needed)
+    # Or reference existing secret
+    existingSecret: "codec-server-s3-creds"
+
+  # TLS enabled in staging
+  tls:
+    enabled: true
+    existingSecret: "codec-server-tls"
+
+  # Authentication enabled in staging
+  auth:
+    enabled: true
+    existingSecret: "codec-server-api-key"
+
+  # Standard rate limits
+  rateLimit:
+    enabled: true
+    rps: 300
+    burst: 600
+
+# Standard probes
+livenessProbe:
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 2
+
+# Prefer spreading across nodes
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - codec-server
+          topologyKey: kubernetes.io/hostname
+
+# Optional: Enable monitoring in staging
+monitoring:
+  enabled: true
+  serviceMonitor:
+    enabled: false  # Enable if Prometheus Operator is available

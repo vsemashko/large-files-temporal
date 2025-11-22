@@ -1,0 +1,181 @@
+name: Incident Report
+description: Report a production incident for tracking and post-mortem
+title: "[Incident]: "
+labels: ["incident", "urgent"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **For active incidents**: Use #platform-incidents Slack channel first!
+        This template is for documenting incidents for post-mortem and tracking.
+
+  - type: input
+    id: incident-date
+    attributes:
+      label: Incident Date
+      description: When did the incident occur?
+      placeholder: "2024-01-15 14:30 UTC"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: SEV level according to incident response plan
+      options:
+        - SEV1 (Critical - Complete outage)
+        - SEV2 (High - Major degradation)
+        - SEV3 (Medium - Minor degradation)
+        - SEV4 (Low - No user impact)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: status
+    attributes:
+      label: Status
+      description: Current incident status
+      options:
+        - Investigating
+        - Identified
+        - Monitoring
+        - Resolved
+      default: 3
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Incident Summary
+      description: Brief summary of what happened
+      placeholder: "Codec server experienced complete outage for 45 minutes due to S3 connectivity issues"
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: User Impact
+      description: How were users affected?
+      placeholder: |
+        - All workflows using large payloads failed
+        - Approximately 500 workflows affected
+        - No data loss
+        - Duration: 45 minutes
+    validations:
+      required: true
+
+  - type: textarea
+    id: timeline
+    attributes:
+      label: Timeline
+      description: Chronological timeline of events
+      placeholder: |
+        14:30 UTC - Alert fired: CodecServerDown
+        14:32 UTC - On-call engineer paged
+        14:35 UTC - Investigation started
+        14:40 UTC - Root cause identified (S3 IAM permissions)
+        14:45 UTC - Fix applied (updated IAM policy)
+        14:50 UTC - Service recovered
+        15:15 UTC - Monitoring confirmed stable
+    validations:
+      required: true
+
+  - type: textarea
+    id: root-cause
+    attributes:
+      label: Root Cause
+      description: What caused the incident?
+      placeholder: "IAM policy for codec-server was accidentally modified during deployment, removing S3 access"
+    validations:
+      required: true
+
+  - type: textarea
+    id: detection
+    attributes:
+      label: Detection
+      description: How was the incident detected?
+      placeholder: |
+        - Prometheus alert: CodecServerDown
+        - PagerDuty notification sent
+        - Time to detect: < 2 minutes
+    validations:
+      required: true
+
+  - type: textarea
+    id: resolution
+    attributes:
+      label: Resolution
+      description: How was the incident resolved?
+      placeholder: |
+        1. Identified S3 permission error in logs
+        2. Reviewed recent IAM policy changes
+        3. Restored correct IAM policy
+        4. Restarted codec server pods
+        5. Verified functionality with smoke tests
+    validations:
+      required: true
+
+  - type: textarea
+    id: action-items
+    attributes:
+      label: Action Items
+      description: Follow-up actions to prevent recurrence
+      placeholder: |
+        - [ ] Add IAM policy drift detection (@owner, due: 2024-01-20)
+        - [ ] Implement policy change alerts (@owner, due: 2024-01-18)
+        - [ ] Update runbook with this scenario (@owner, due: 2024-01-17)
+        - [ ] Add integration test for IAM permissions (@owner, due: 2024-01-25)
+    validations:
+      required: true
+
+  - type: textarea
+    id: lessons-learned
+    attributes:
+      label: Lessons Learned
+      description: What did we learn?
+      placeholder: |
+        **What went well:**
+        - Alert fired quickly (< 2 minutes)
+        - On-call responded within SLA
+        - Resolution was straightforward
+
+        **What could be improved:**
+        - IAM policy changes should require approval
+        - Need better validation before deployment
+        - Runbook didn't cover IAM permission issues
+
+  - type: textarea
+    id: metrics
+    attributes:
+      label: Incident Metrics
+      description: Key metrics from the incident
+      placeholder: |
+        - Time to detect: 2 minutes
+        - Time to engage: 2 minutes
+        - Time to resolve: 15 minutes
+        - Total duration: 45 minutes
+        - Workflows affected: ~500
+        - Data loss: None
+        - Customer complaints: 0
+
+  - type: input
+    id: post-mortem
+    attributes:
+      label: Post-Mortem Link
+      description: Link to full post-mortem document
+      placeholder: "https://docs.google.com/document/d/..."
+
+  - type: checkboxes
+    id: follow-up
+    attributes:
+      label: Post-Incident Tasks
+      options:
+        - label: Post-mortem document created
+        - label: Action items filed as GitHub issues
+        - label: Runbooks updated
+        - label: Team notified in Slack
+        - label: Stakeholders informed
+        - label: Monitoring/alerting improved

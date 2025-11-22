@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "codec-server.fullname" . }}
+  labels:
+    {{- include "codec-server.labels" . | nindent 4 }}
+data:
+  S3_BUCKET: {{ .Values.config.s3.bucket | quote }}
+  S3_REGION: {{ .Values.config.s3.region | quote }}
+  {{- if .Values.config.s3.endpoint }}
+  S3_ENDPOINT: {{ .Values.config.s3.endpoint | quote }}
+  {{- end }}
+  LARGE_PAYLOAD_THRESHOLD: {{ .Values.config.largePayloadThreshold | quote }}
+  GRPC_PORT: {{ .Values.config.grpcPort | quote }}
+  HTTP_PORT: {{ .Values.config.httpPort | quote }}
+  {{- if .Values.config.tls.enabled }}
+  CODEC_TLS_ENABLED: "true"
+  {{- end }}
+  {{- if .Values.config.rateLimit.enabled }}
+  RATE_LIMIT_ENABLED: "true"
+  RATE_LIMIT_RPS: {{ .Values.config.rateLimit.rps | quote }}
+  RATE_LIMIT_BURST: {{ .Values.config.rateLimit.burst | quote }}
+  {{- end }}

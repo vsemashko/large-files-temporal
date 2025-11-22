@@ -1,0 +1,127 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this bug! Please fill out the information below to help us investigate.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which component is affected?
+      options:
+        - Codec Server
+        - Cleanup Worker
+        - Go Worker Sample
+        - TypeScript Worker Sample
+        - Helm Chart
+        - CI/CD
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: How severe is this bug?
+      options:
+        - Critical (production down)
+        - High (major functionality broken)
+        - Medium (functionality degraded)
+        - Low (minor issue or workaround available)
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: Clear description of what the bug is
+      placeholder: "Example: Codec server crashes when encoding payloads larger than 5MB"
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this bug?
+      placeholder: |
+        1. Deploy codec server with default configuration
+        2. Send encode request with 5MB payload
+        3. Server crashes with OOM error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+      placeholder: "Payload should be encoded and stored to S3"
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened?
+      placeholder: "Server crashes with out of memory error"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs
+      description: Paste relevant log output here
+      render: shell
+      placeholder: |
+        kubectl logs -n temporal codec-server-xyz --tail=50
+
+        # Paste logs here
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Deployment environment details
+      placeholder: |
+        - Kubernetes Version: v1.28
+        - Codec Server Version: v1.0.0
+        - S3 Bucket Region: us-east-1
+        - Helm Chart Version: 1.0.0
+        - Environment: production/staging/dev
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any other context about the problem
+      placeholder: |
+        - This started happening after upgrading to v1.0.1
+        - Only affects workflows in us-east-1
+        - Workaround: reducing payload size to 3MB works
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      options:
+        - label: I have searched existing issues to avoid duplicates
+          required: true
+        - label: I have included relevant logs and error messages
+          required: false
+        - label: I have provided steps to reproduce
+          required: true
+        - label: I have tested with the latest version
+          required: false

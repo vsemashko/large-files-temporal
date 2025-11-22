@@ -1,0 +1,123 @@
+name: Feature Request
+description: Suggest a new feature or enhancement
+title: "[Feature]: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a new feature! Please provide details below.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which component would this feature affect?
+      options:
+        - Codec Server
+        - Cleanup Worker
+        - Worker Samples
+        - Helm Chart
+        - CI/CD
+        - Documentation
+        - Monitoring
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How important is this feature?
+      options:
+        - P0 - Critical (blocking production use)
+        - P1 - High (important for production)
+        - P2 - Medium (nice to have)
+        - P3 - Low (future enhancement)
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What problem does this feature solve?
+      placeholder: "As a developer, I need to... because..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: How would you like this problem to be solved?
+      placeholder: |
+        I propose adding a configuration option to...
+
+        This would work by...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: What other solutions have you considered?
+      placeholder: |
+        - Alternative 1: ...
+        - Alternative 2: ...
+
+  - type: textarea
+    id: use-cases
+    attributes:
+      label: Use Cases
+      description: Describe how this feature would be used
+      placeholder: |
+        1. User configures...
+        2. System automatically...
+        3. Result is...
+
+  - type: textarea
+    id: examples
+    attributes:
+      label: Examples
+      description: Provide code examples or mockups
+      render: yaml
+      placeholder: |
+        # Example configuration:
+        config:
+          newFeature:
+            enabled: true
+            option: value
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: What would be the impact of implementing this?
+      placeholder: |
+        - Performance: Expected improvement of X%
+        - Compatibility: Backward compatible / Breaking change
+        - Complexity: Low / Medium / High
+
+  - type: checkboxes
+    id: willing-to-contribute
+    attributes:
+      label: Contribution
+      options:
+        - label: I am willing to submit a PR for this feature
+        - label: I can help with testing
+        - label: I can help with documentation
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      options:
+        - label: I have searched existing issues and feature requests
+          required: true
+        - label: This feature aligns with the project's goals
+          required: false
+        - label: I have provided use cases and examples
+          required: true

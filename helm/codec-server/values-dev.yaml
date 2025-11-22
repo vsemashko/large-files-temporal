@@ -1,0 +1,66 @@
+# Development environment values
+# Override default values.yaml for local/development deployments
+
+# Single replica for development
+replicaCount: 1
+
+image:
+  pullPolicy: Always
+  # Use latest tag for development
+  tag: "latest"
+
+# Disable autoscaling in development
+autoscaling:
+  enabled: false
+
+# Disable PDB in development
+podDisruptionBudget:
+  enabled: false
+
+# Reduced resources for development
+resources:
+  limits:
+    cpu: 1000m
+    memory: 2Gi
+  requests:
+    cpu: 250m
+    memory: 512Mi
+
+# Development configuration
+config:
+  s3:
+    bucket: "temporal-large-payloads-dev"
+    region: "us-east-1"
+    # LocalStack endpoint for local development
+    endpoint: "http://localstack:4566"
+    # Use static credentials for LocalStack
+    accessKeyId: "test"
+    secretAccessKey: "test"
+
+  # No TLS in development
+  tls:
+    enabled: false
+
+  # No authentication in development
+  auth:
+    enabled: false
+
+  # Lower rate limits for development
+  rateLimit:
+    enabled: true
+    rps: 100
+    burst: 200
+
+# Relaxed probes for development
+livenessProbe:
+  initialDelaySeconds: 10
+  periodSeconds: 30
+  failureThreshold: 5
+
+readinessProbe:
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  failureThreshold: 5
+
+# Allow scheduling on any node in development
+affinity: {}
