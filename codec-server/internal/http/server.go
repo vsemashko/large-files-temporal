@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/vsemashko/large-files-temporal/codec-server/internal/codec"
@@ -40,13 +41,50 @@ const (
 
 // Server implements the HTTP server for the codec
 type Server struct {
-	codec *codec.Codec
+	codec  *codec.Codec
+	apiKey string
 }
 
 // NewServer creates a new HTTP server
-func NewServer(c *codec.Codec) *Server {
+func NewServer(c *codec.Codec, apiKey string) *Server {
 	return &Server{
-		codec: c,
+		codec:  c,
+		apiKey: apiKey,
+	}
+}
+
+// AuthMiddleware returns an HTTP middleware that checks API key authentication
+func (s *Server) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Skip auth if API key is not configured
+		if s.apiKey == "" {
+			next(w, r)
+			return
+		}
+
+		// Skip auth for health endpoint
+		if r.URL.Path == "/health" {
+			next(w, r)
+			return
+		}
+
+		// Check for API key in header
+		apiKey := r.Header.Get("X-API-Key")
+		if apiKey == "" {
+			// Try Authorization header with Bearer scheme
+			auth := r.Header.Get("Authorization")
+			if strings.HasPrefix(auth, "Bearer ") {
+				apiKey = strings.TrimPrefix(auth, "Bearer ")
+			}
+		}
+
+		if apiKey != s.apiKey {
+			log.Printf("Unauthorized request from %s to %s", r.RemoteAddr, r.URL.Path)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		next(w, r)
 	}
 }
 

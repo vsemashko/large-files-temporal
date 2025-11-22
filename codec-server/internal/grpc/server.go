@@ -4,10 +4,15 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/vsemashko/large-files-temporal/codec-server/internal/codec"
 	pb "github.com/vsemashko/large-files-temporal/codec-server/pkg/proto"
 	"go.temporal.io/api/common/v1"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -21,6 +26,48 @@ type Server struct {
 func NewServer(c *codec.Codec) *Server {
 	return &Server{
 		codec: c,
+	}
+}
+
+// AuthInterceptor creates a gRPC unary server interceptor for API key authentication
+func AuthInterceptor(apiKey string) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		// Skip auth if API key is not configured
+		if apiKey == "" {
+			return handler(ctx, req)
+		}
+
+		// Get metadata from context
+		md, ok := metadata.FromIncomingContext(ctx)
+		if !ok {
+			log.Printf("Missing metadata in gRPC request")
+			return nil, status.Error(codes.Unauthenticated, "missing metadata")
+		}
+
+		// Check for API key in metadata
+		// Support both "authorization" and "x-api-key" headers
+		var clientAPIKey string
+
+		// Try x-api-key first
+		if keys := md.Get("x-api-key"); len(keys) > 0 {
+			clientAPIKey = keys[0]
+		}
+
+		// Try authorization header (Bearer token)
+		if clientAPIKey == "" {
+			if auth := md.Get("authorization"); len(auth) > 0 {
+				if strings.HasPrefix(auth[0], "Bearer ") {
+					clientAPIKey = strings.TrimPrefix(auth[0], "Bearer ")
+				}
+			}
+		}
+
+		if clientAPIKey != apiKey {
+			log.Printf("Unauthorized gRPC request: method=%s", info.FullMethod)
+			return nil, status.Error(codes.Unauthenticated, "invalid api key")
+		}
+
+		return handler(ctx, req)
 	}
 }
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"net"
@@ -15,9 +16,12 @@ import (
 	"github.com/vsemashko/large-files-temporal/codec-server/internal/config"
 	grpcserver "github.com/vsemashko/large-files-temporal/codec-server/internal/grpc"
 	httpserver "github.com/vsemashko/large-files-temporal/codec-server/internal/http"
+	"github.com/vsemashko/large-files-temporal/codec-server/internal/ratelimit"
 	"github.com/vsemashko/large-files-temporal/codec-server/internal/storage"
 	pb "github.com/vsemashko/large-files-temporal/codec-server/pkg/proto"
+	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 )
@@ -50,11 +54,11 @@ func main() {
 	c := codec.NewCodec(s3Storage, cfg.PayloadSizeThreshold, cfg.S3Bucket)
 	log.Println("Codec initialized successfully")
 
-	// Create gRPC server with limits and timeouts
-	grpcServer := grpc.NewServer(
-		grpc.MaxRecvMsgSize(100*1024*1024), // 100MB max receive
-		grpc.MaxSendMsgSize(100*1024*1024), // 100MB max send
-		grpc.ConnectionTimeout(30*time.Second),
+	// Prepare gRPC server options
+	grpcOpts := []grpc.ServerOption{
+		grpc.MaxRecvMsgSize(100 * 1024 * 1024), // 100MB max receive
+		grpc.MaxSendMsgSize(100 * 1024 * 1024), // 100MB max send
+		grpc.ConnectionTimeout(30 * time.Second),
 		grpc.KeepaliveParams(keepalive.ServerParameters{
 			MaxConnectionIdle:     15 * time.Minute,
 			MaxConnectionAge:      30 * time.Minute,
@@ -62,7 +66,26 @@ func main() {
 			Time:                  5 * time.Minute,
 			Timeout:               1 * time.Minute,
 		}),
-	)
+	}
+
+	// Add authentication interceptor if API key is configured
+	if cfg.APIKey != "" {
+		grpcOpts = append(grpcOpts, grpc.UnaryInterceptor(grpcserver.AuthInterceptor(cfg.APIKey)))
+		log.Println("gRPC API key authentication enabled")
+	}
+
+	// Add TLS credentials if enabled
+	if cfg.TLSEnabled {
+		creds, err := credentials.NewServerTLSFromFile(cfg.TLSCertFile, cfg.TLSKeyFile)
+		if err != nil {
+			log.Fatalf("Failed to load TLS credentials: %v", err)
+		}
+		grpcOpts = append(grpcOpts, grpc.Creds(creds))
+		log.Printf("gRPC TLS enabled with cert: %s", cfg.TLSCertFile)
+	}
+
+	// Create gRPC server with limits and timeouts
+	grpcServer := grpc.NewServer(grpcOpts...)
 	codecServer := grpcserver.NewServer(c)
 	pb.RegisterPayloadCodecServer(grpcServer, codecServer)
 
@@ -86,12 +109,23 @@ func main() {
 	}()
 
 	// Create HTTP server for TypeScript workers
-	httpSrv := httpserver.NewServer(c)
+	httpSrv := httpserver.NewServer(c, cfg.APIKey)
 	httpMux := nethttp.NewServeMux()
-	httpMux.HandleFunc("/encode", httpSrv.HandleEncode)
-	httpMux.HandleFunc("/decode", httpSrv.HandleDecode)
-	httpMux.HandleFunc("/health", httpSrv.HandleHealth)
-	httpMux.HandleFunc("/metrics", httpSrv.HandleMetrics)
+
+	// Create rate limiter
+	rateLimiter := ratelimit.NewIPRateLimiter(rate.Limit(cfg.RateLimitRPS), cfg.RateLimitBurst)
+	log.Printf("Rate limiting enabled: %d req/s, burst %d", cfg.RateLimitRPS, cfg.RateLimitBurst)
+
+	// Wrap endpoints with rate limiting and authentication middleware
+	// Order: rate limiting -> authentication -> handler
+	httpMux.HandleFunc("/encode", rateLimiter.Middleware(httpSrv.AuthMiddleware(httpSrv.HandleEncode)))
+	httpMux.HandleFunc("/decode", rateLimiter.Middleware(httpSrv.AuthMiddleware(httpSrv.HandleDecode)))
+	httpMux.HandleFunc("/health", httpSrv.HandleHealth) // Health is always accessible
+	httpMux.HandleFunc("/metrics", rateLimiter.Middleware(httpSrv.AuthMiddleware(httpSrv.HandleMetrics)))
+
+	if cfg.APIKey != "" {
+		log.Println("API key authentication enabled")
+	}
 
 	httpAddr := fmt.Sprintf(":%d", cfg.HTTPPort)
 	httpServer := &nethttp.Server{
@@ -108,7 +142,25 @@ func main() {
 
 	// Start HTTP server in a goroutine
 	go func() {
-		if err := httpServer.ListenAndServe(); err != nil && err != nethttp.ErrServerClosed {
+		var err error
+		if cfg.TLSEnabled {
+			// Configure TLS
+			tlsConfig := &tls.Config{
+				MinVersion: tls.VersionTLS12,
+				CipherSuites: []uint16{
+					tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+					tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+					tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+					tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+				},
+			}
+			httpServer.TLSConfig = tlsConfig
+			log.Printf("HTTP TLS enabled with cert: %s", cfg.TLSCertFile)
+			err = httpServer.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile)
+		} else {
+			err = httpServer.ListenAndServe()
+		}
+		if err != nil && err != nethttp.ErrServerClosed {
 			log.Fatalf("Failed to serve HTTP: %v", err)
 		}
 	}()
