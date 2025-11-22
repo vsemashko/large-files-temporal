@@ -15,7 +15,7 @@
   "dependencies": {
     "@temporalio/activity": "^1.10.0",
     "@temporalio/client": "^1.10.0",
-    "@temporalio/worker": "^1.10.0",
+    "@temporalio/worker": "^1.13.2",
     "@temporalio/workflow": "^1.10.0",
     "@temporalio/common": "^1.10.0"
   },
