@@ -1,0 +1,336 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop, 'claude/**' ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  GO_VERSION: '1.21'
+  NODE_VERSION: '20'
+
+jobs:
+  # Lint and format checks
+  lint:
+    name: Lint and Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Run golangci-lint on codec-server
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: codec-server
+          args: --timeout=5m
+
+      - name: Run golangci-lint on cleanup-worker
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: cleanup-worker
+          args: --timeout=5m
+
+      - name: Run golangci-lint on go-worker
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: samples/go-worker
+          args: --timeout=5m
+
+  # Test codec-server
+  test-codec-server:
+    name: Test Codec Server
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install protoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+          protoc --version
+
+      - name: Install protoc-gen-go
+        run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+      - name: Generate protobuf code
+        working-directory: ./codec-server
+        run: make proto
+
+      - name: Download dependencies
+        working-directory: ./codec-server
+        run: go mod download
+
+      - name: Run tests
+        working-directory: ./codec-server
+        run: |
+          go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Generate coverage report
+        working-directory: ./codec-server
+        run: |
+          go tool cover -html=coverage.out -o coverage.html
+          go tool cover -func=coverage.out
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./codec-server/coverage.out
+          flags: codec-server
+          name: codec-server-coverage
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+  # Test cleanup-worker
+  test-cleanup-worker:
+    name: Test Cleanup Worker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Download dependencies
+        working-directory: ./cleanup-worker
+        run: go mod download
+
+      - name: Run tests
+        working-directory: ./cleanup-worker
+        run: |
+          go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./cleanup-worker/coverage.out
+          flags: cleanup-worker
+          name: cleanup-worker-coverage
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+  # Test go-worker sample
+  test-go-worker:
+    name: Test Go Worker Sample
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install protoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
+      - name: Install protoc-gen-go
+        run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+      - name: Generate protobuf code
+        working-directory: ./samples/go-worker
+        run: make proto
+
+      - name: Download dependencies
+        working-directory: ./samples/go-worker
+        run: go mod download
+
+      - name: Run tests
+        working-directory: ./samples/go-worker
+        run: |
+          go test -v -race ./...
+
+  # Test TypeScript worker sample
+  test-typescript-worker:
+    name: Test TypeScript Worker Sample
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: samples/typescript-worker/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./samples/typescript-worker
+        run: npm ci
+
+      - name: Run linter
+        working-directory: ./samples/typescript-worker
+        run: npm run lint || true
+
+      - name: Build
+        working-directory: ./samples/typescript-worker
+        run: npm run build
+
+  # Security scanning
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  # Build and push Docker images (only on main branch)
+  build-and-push:
+    name: Build and Push Docker Images
+    runs-on: ubuntu-latest
+    needs: [test-codec-server, test-cleanup-worker, security-scan]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for codec-server
+        id: meta-codec
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/codec-server
+          tags: |
+            type=sha,prefix={{branch}}-
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push codec-server
+        uses: docker/build-push-action@v5
+        with:
+          context: ./codec-server
+          push: true
+          tags: ${{ steps.meta-codec.outputs.tags }}
+          labels: ${{ steps.meta-codec.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Extract metadata for cleanup-worker
+        id: meta-cleanup
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/cleanup-worker
+          tags: |
+            type=sha,prefix={{branch}}-
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push cleanup-worker
+        uses: docker/build-push-action@v5
+        with:
+          context: ./cleanup-worker
+          push: true
+          tags: ${{ steps.meta-cleanup.outputs.tags }}
+          labels: ${{ steps.meta-cleanup.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Integration tests (optional, only on main/develop)
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [test-codec-server, test-cleanup-worker]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    services:
+      localstack:
+        image: localstack/localstack:latest
+        env:
+          SERVICES: s3
+          DEFAULT_REGION: us-east-1
+        ports:
+          - 4566:4566
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install protoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
+      - name: Install protoc-gen-go
+        run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+      - name: Build codec-server
+        working-directory: ./codec-server
+        run: |
+          make proto
+          go build -o codec-server ./cmd/server
+
+      - name: Run integration tests
+        working-directory: ./codec-server
+        env:
+          S3_ENDPOINT: http://localhost:4566
+          S3_BUCKET: temporal-test-payloads
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_REGION: us-east-1
+        run: |
+          # Start codec server in background
+          ./codec-server &
+          CODEC_PID=$!
+
+          # Wait for server to be ready
+          sleep 5
+
+          # Run integration tests
+          go test -v -tags=integration ./internal/...
+
+          # Cleanup
+          kill $CODEC_PID || true

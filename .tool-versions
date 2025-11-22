@@ -1,0 +1,21 @@
+# Runtime versions managed by mise (https://mise.jdx.dev/)
+# Install mise: curl https://mise.run | sh
+# Then run: mise install
+
+# Go - Required for codec-server, cleanup-worker, and go-worker
+golang 1.21.13
+
+# Node.js - Required for TypeScript worker
+nodejs 20.18.1
+
+# Python - Optional, for scripting and tools
+python 3.11.11
+
+# kubectl - For Kubernetes deployment
+kubectl 1.31.4
+
+# k6 - For load testing
+k6 0.54.0
+
+# Docker - For containerization
+# Note: mise doesn't manage Docker, install separately

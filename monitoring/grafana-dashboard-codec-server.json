@@ -1,0 +1,361 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "codec-server-overview",
+    "title": "Temporal Codec Server - Overview",
+    "tags": ["temporal", "codec-server", "s3"],
+    "timezone": "browser",
+    "schemaVersion": 38,
+    "version": 1,
+    "refresh": "30s",
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    },
+    "timepicker": {
+      "refresh_intervals": ["10s", "30s", "1m", "5m", "15m", "30m", "1h"]
+    },
+    "templating": {
+      "list": [
+        {
+          "name": "datasource",
+          "type": "datasource",
+          "query": "prometheus",
+          "current": {
+            "text": "Prometheus",
+            "value": "Prometheus"
+          }
+        },
+        {
+          "name": "namespace",
+          "type": "query",
+          "datasource": "${datasource}",
+          "query": "label_values(up{job=\"codec-server\"}, namespace)",
+          "current": {
+            "text": "temporal",
+            "value": "temporal"
+          },
+          "refresh": 1
+        },
+        {
+          "name": "instance",
+          "type": "query",
+          "datasource": "${datasource}",
+          "query": "label_values(up{job=\"codec-server\", namespace=\"$namespace\"}, instance)",
+          "current": {
+            "text": "All",
+            "value": "$__all"
+          },
+          "includeAll": true,
+          "refresh": 1
+        }
+      ]
+    },
+    "annotations": {
+      "list": [
+        {
+          "datasource": "${datasource}",
+          "enable": true,
+          "expr": "ALERTS{alertname=~\"Codec.*\", namespace=\"$namespace\"}",
+          "iconColor": "red",
+          "name": "Alerts",
+          "tagKeys": "severity,alertname",
+          "titleFormat": "Alert: {{alertname}}",
+          "textFormat": "{{annotations.description}}"
+        }
+      ]
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Service Health",
+        "type": "stat",
+        "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+        "targets": [
+          {
+            "expr": "up{job=\"codec-server\", namespace=\"$namespace\", instance=~\"$instance\"}",
+            "legendFormat": "{{instance}}"
+          }
+        ],
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "orientation": "auto",
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"]
+          }
+        },
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 1, "color": "green"}
+              ]
+            },
+            "mappings": [
+              {"type": "value", "value": "0", "text": "DOWN"},
+              {"type": "value", "value": "1", "text": "UP"}
+            ]
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Request Rate (QPS)",
+        "type": "graph",
+        "gridPos": {"x": 6, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "sum(rate(codec_encode_requests_total{namespace=\"$namespace\", instance=~\"$instance\"}[5m]))",
+            "legendFormat": "Encode"
+          },
+          {
+            "expr": "sum(rate(codec_decode_requests_total{namespace=\"$namespace\", instance=~\"$instance\"}[5m]))",
+            "legendFormat": "Decode"
+          }
+        ],
+        "yaxes": [
+          {"format": "reqps", "label": "Requests/sec"},
+          {"format": "short"}
+        ],
+        "xaxis": {"mode": "time"}
+      },
+      {
+        "id": 3,
+        "title": "Error Rate",
+        "type": "graph",
+        "gridPos": {"x": 18, "y": 0, "w": 6, "h": 8},
+        "targets": [
+          {
+            "expr": "sum(rate(codec_encode_errors_total{namespace=\"$namespace\", instance=~\"$instance\"}[5m])) / sum(rate(codec_encode_requests_total{namespace=\"$namespace\", instance=~\"$instance\"}[5m]))",
+            "legendFormat": "Encode Error %"
+          },
+          {
+            "expr": "sum(rate(codec_decode_errors_total{namespace=\"$namespace\", instance=~\"$instance\"}[5m])) / sum(rate(codec_decode_requests_total{namespace=\"$namespace\", instance=~\"$instance\"}[5m]))",
+            "legendFormat": "Decode Error %"
+          }
+        ],
+        "yaxes": [
+          {"format": "percentunit", "label": "Error Rate"},
+          {"format": "short"}
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": {"type": "gt", "params": [0.05]},
+              "query": {"params": ["A", "5m", "now"]},
+              "type": "query"
+            }
+          ],
+          "executionErrorState": "alerting",
+          "frequency": "1m",
+          "handler": 1,
+          "name": "Codec Error Rate Alert",
+          "noDataState": "no_data"
+        }
+      },
+      {
+        "id": 4,
+        "title": "Encode Latency (P50, P95, P99)",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(codec_encode_duration_seconds_bucket{namespace=\"$namespace\", instance=~\"$instance\"}[5m])) by (le))",
+            "legendFormat": "P50"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(codec_encode_duration_seconds_bucket{namespace=\"$namespace\", instance=~\"$instance\"}[5m])) by (le))",
+            "legendFormat": "P95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(codec_encode_duration_seconds_bucket{namespace=\"$namespace\", instance=~\"$instance\"}[5m])) by (le))",
+            "legendFormat": "P99"
+          }
+        ],
+        "yaxes": [
+          {"format": "s", "label": "Latency"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Decode Latency (P50, P95, P99)",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(codec_decode_duration_seconds_bucket{namespace=\"$namespace\", instance=~\"$instance\"}[5m])) by (le))",
+            "legendFormat": "P50"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(codec_decode_duration_seconds_bucket{namespace=\"$namespace\", instance=~\"$instance\"}[5m])) by (le))",
+            "legendFormat": "P95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(codec_decode_duration_seconds_bucket{namespace=\"$namespace\", instance=~\"$instance\"}[5m])) by (le))",
+            "legendFormat": "P99"
+          }
+        ],
+        "yaxes": [
+          {"format": "s", "label": "Latency"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 6,
+        "title": "S3 Operations",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "sum(rate(s3_uploads_total{namespace=\"$namespace\", instance=~\"$instance\"}[5m]))",
+            "legendFormat": "Uploads/sec"
+          },
+          {
+            "expr": "sum(rate(s3_downloads_total{namespace=\"$namespace\", instance=~\"$instance\"}[5m]))",
+            "legendFormat": "Downloads/sec"
+          },
+          {
+            "expr": "sum(rate(s3_upload_errors_total{namespace=\"$namespace\", instance=~\"$instance\"}[5m]))",
+            "legendFormat": "Upload Errors/sec"
+          },
+          {
+            "expr": "sum(rate(s3_download_errors_total{namespace=\"$namespace\", instance=~\"$instance\"}[5m]))",
+            "legendFormat": "Download Errors/sec"
+          }
+        ],
+        "yaxes": [
+          {"format": "ops", "label": "Operations/sec"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 7,
+        "title": "S3 Bandwidth",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "sum(rate(s3_bytes_uploaded_total{namespace=\"$namespace\", instance=~\"$instance\"}[5m]))",
+            "legendFormat": "Upload"
+          },
+          {
+            "expr": "sum(rate(s3_bytes_downloaded_total{namespace=\"$namespace\", instance=~\"$instance\"}[5m]))",
+            "legendFormat": "Download"
+          }
+        ],
+        "yaxes": [
+          {"format": "Bps", "label": "Bytes/sec"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Payload Size Distribution",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 24, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "max(codec_largest_payload_bytes{namespace=\"$namespace\", instance=~\"$instance\"})",
+            "legendFormat": "Largest"
+          },
+          {
+            "expr": "min(codec_smallest_payload_bytes{namespace=\"$namespace\", instance=~\"$instance\"})",
+            "legendFormat": "Smallest"
+          },
+          {
+            "expr": "avg(codec_largest_payload_bytes{namespace=\"$namespace\", instance=~\"$instance\"})",
+            "legendFormat": "Average Largest"
+          }
+        ],
+        "yaxes": [
+          {"format": "bytes", "label": "Payload Size"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Memory Usage",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 24, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "container_memory_working_set_bytes{pod=~\"codec-server-.*\", namespace=\"$namespace\"}",
+            "legendFormat": "{{pod}}"
+          },
+          {
+            "expr": "container_spec_memory_limit_bytes{pod=~\"codec-server-.*\", namespace=\"$namespace\"}",
+            "legendFormat": "Limit - {{pod}}"
+          }
+        ],
+        "yaxes": [
+          {"format": "bytes", "label": "Memory"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 10,
+        "title": "CPU Usage",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 32, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(container_cpu_usage_seconds_total{pod=~\"codec-server-.*\", namespace=\"$namespace\"}[5m])",
+            "legendFormat": "{{pod}}"
+          }
+        ],
+        "yaxes": [
+          {"format": "percentunit", "label": "CPU Cores"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 11,
+        "title": "Pod Restarts",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 32, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "kube_pod_container_status_restarts_total{pod=~\"codec-server-.*\", namespace=\"$namespace\"}",
+            "legendFormat": "{{pod}}"
+          }
+        ],
+        "yaxes": [
+          {"format": "short", "label": "Restarts"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 12,
+        "title": "Top Error Messages (Last Hour)",
+        "type": "table",
+        "gridPos": {"x": 0, "y": 40, "w": 24, "h": 8},
+        "targets": [
+          {
+            "expr": "topk(10, sum(increase(codec_encode_errors_total{namespace=\"$namespace\"}[1h])) by (error_type))",
+            "format": "table",
+            "instant": true
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {"Time": true},
+              "indexByName": {},
+              "renameByName": {
+                "error_type": "Error Type",
+                "Value": "Count"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "overwrite": true
+}

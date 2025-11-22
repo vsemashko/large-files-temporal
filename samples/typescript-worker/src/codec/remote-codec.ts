@@ -14,6 +14,9 @@ export class RemoteCodec implements PayloadCodec {
     }
 
     try {
+      // Extract workflow context from payload metadata
+      const workflowContext = this.extractWorkflowContext(payloads);
+
       // Serialize payloads to base64 for HTTP transport
       const serializedPayloads = payloads.map((p) => ({
         metadata: Object.fromEntries(
@@ -32,9 +35,9 @@ export class RemoteCodec implements PayloadCodec {
         },
         body: JSON.stringify({
           payloads: serializedPayloads,
-          namespace: 'default',
-          workflowId: 'unknown',
-          runId: 'unknown',
+          namespace: workflowContext.namespace,
+          workflowId: workflowContext.workflowId,
+          runId: workflowContext.runId,
         }),
       });
 
@@ -119,5 +122,59 @@ export class RemoteCodec implements PayloadCodec {
       // Fallback to original payloads on error
       return payloads;
     }
+  }
+
+  /**
+   * Extract workflow context from payload metadata
+   * Temporal payloads may contain metadata with workflow information
+   */
+  private extractWorkflowContext(payloads: Payload[]): {
+    namespace: string;
+    workflowId: string;
+    runId: string;
+  } {
+    const context = {
+      namespace: 'default',
+      workflowId: 'unknown',
+      runId: 'unknown',
+    };
+
+    // Try to extract context from payload metadata
+    // Temporal may embed workflow context in payload metadata
+    for (const payload of payloads) {
+      if (!payload.metadata) continue;
+
+      // Check for temporal-workflow-id
+      if (payload.metadata['temporal-workflow-id']) {
+        context.workflowId = Buffer.from(
+          payload.metadata['temporal-workflow-id']
+        ).toString('utf-8');
+      }
+
+      // Check for temporal-run-id
+      if (payload.metadata['temporal-run-id']) {
+        context.runId = Buffer.from(
+          payload.metadata['temporal-run-id']
+        ).toString('utf-8');
+      }
+
+      // Check for temporal-namespace
+      if (payload.metadata['temporal-namespace']) {
+        context.namespace = Buffer.from(
+          payload.metadata['temporal-namespace']
+        ).toString('utf-8');
+      }
+
+      // If we found all context, we can stop searching
+      if (
+        context.workflowId !== 'unknown' &&
+        context.runId !== 'unknown' &&
+        context.namespace !== 'default'
+      ) {
+        break;
+      }
+    }
+
+    return context;
   }
 }

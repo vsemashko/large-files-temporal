@@ -1,0 +1,345 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-codec-server-rules
+  namespace: temporal
+  labels:
+    app: prometheus
+    component: alerting-rules
+data:
+  codec-server.rules: |
+    groups:
+      # Codec Server Health and Availability
+      - name: codec_server_availability
+        interval: 30s
+        rules:
+          # Service is completely down
+          - alert: CodecServerDown
+            expr: up{job="codec-server"} == 0
+            for: 2m
+            labels:
+              severity: critical
+              component: codec-server
+              team: platform
+            annotations:
+              summary: "Codec server is down"
+              description: "Codec server instance {{ $labels.instance }} has been unavailable for 2 minutes"
+              runbook: "https://github.com/vsemashko/large-files-temporal/docs/runbooks/codec-server-down.md"
+
+          # Health check failing
+          - alert: CodecServerUnhealthy
+            expr: probe_success{job="codec-server-health"} == 0
+            for: 5m
+            labels:
+              severity: warning
+              component: codec-server
+              team: platform
+            annotations:
+              summary: "Codec server health check failing"
+              description: "Health check for {{ $labels.instance }} has been failing for 5 minutes"
+              runbook: "https://github.com/vsemashko/large-files-temporal/docs/runbooks/health-check-failure.md"
+
+          # Multiple instances down (quorum loss)
+          - alert: CodecServerQuorumLoss
+            expr: |
+              (count(up{job="codec-server"} == 1) or vector(0))
+              <
+              (count(up{job="codec-server"}) * 0.5)
+            for: 1m
+            labels:
+              severity: critical
+              component: codec-server
+              team: platform
+            annotations:
+              summary: "Codec server quorum loss - less than 50% instances available"
+              description: "Only {{ $value }} codec server instances are healthy"
+
+      # Error Rate Monitoring
+      - name: codec_server_errors
+        interval: 30s
+        rules:
+          # High overall error rate
+          - alert: CodecHighErrorRate
+            expr: |
+              (
+                sum(rate(codec_encode_errors_total[5m])) +
+                sum(rate(codec_decode_errors_total[5m]))
+              ) /
+              (
+                sum(rate(codec_encode_requests_total[5m])) +
+                sum(rate(codec_decode_requests_total[5m]))
+              ) > 0.05
+            for: 5m
+            labels:
+              severity: warning
+              component: codec-server
+              team: platform
+            annotations:
+              summary: "High error rate in codec server"
+              description: "Error rate is {{ $value | humanizePercentage }} over the last 5 minutes (threshold: 5%)"
+              dashboard: "https://grafana.example.com/d/codec-server"
+
+          # Critical error rate
+          - alert: CodecCriticalErrorRate
+            expr: |
+              (
+                sum(rate(codec_encode_errors_total[5m])) +
+                sum(rate(codec_decode_errors_total[5m]))
+              ) /
+              (
+                sum(rate(codec_encode_requests_total[5m])) +
+                sum(rate(codec_decode_requests_total[5m]))
+              ) > 0.20
+            for: 2m
+            labels:
+              severity: critical
+              component: codec-server
+              team: platform
+            annotations:
+              summary: "CRITICAL: Very high error rate in codec server"
+              description: "Error rate is {{ $value | humanizePercentage }} over the last 5 minutes (threshold: 20%)"
+
+          # S3 upload failures
+          - alert: CodecS3UploadFailures
+            expr: rate(s3_upload_errors_total[5m]) > 0.01
+            for: 5m
+            labels:
+              severity: warning
+              component: codec-server
+              team: platform
+            annotations:
+              summary: "S3 upload failures detected"
+              description: "S3 upload failure rate: {{ $value | humanizePercentage }} on {{ $labels.instance }}"
+
+          # S3 download failures
+          - alert: CodecS3DownloadFailures
+            expr: rate(s3_download_errors_total[5m]) > 0.01
+            for: 5m
+            labels:
+              severity: warning
+              component: codec-server
+              team: platform
+            annotations:
+              summary: "S3 download failures detected"
+              description: "S3 download failure rate: {{ $value | humanizePercentage }} on {{ $labels.instance }}"
+
+      # Latency Monitoring
+      - name: codec_server_latency
+        interval: 30s
+        rules:
+          # High encode latency (P95)
+          - alert: CodecHighEncodeLatency
+            expr: |
+              histogram_quantile(0.95,
+                sum(rate(codec_encode_duration_seconds_bucket[5m])) by (le)
+              ) > 2.0
+            for: 10m
+            labels:
+              severity: warning
+              component: codec-server
+              team: platform
+            annotations:
+              summary: "High encode latency detected"
+              description: "P95 encode latency is {{ $value }}s (threshold: 2s)"
+
+          # Critical encode latency (P95)
+          - alert: CodecCriticalEncodeLatency
+            expr: |
+              histogram_quantile(0.95,
+                sum(rate(codec_encode_duration_seconds_bucket[5m])) by (le)
+              ) > 5.0
+            for: 5m
+            labels:
+              severity: critical
+              component: codec-server
+              team: platform
+            annotations:
+              summary: "CRITICAL: Very high encode latency"
+              description: "P95 encode latency is {{ $value }}s (threshold: 5s)"
+
+          # High decode latency (P95)
+          - alert: CodecHighDecodeLatency
+            expr: |
+              histogram_quantile(0.95,
+                sum(rate(codec_decode_duration_seconds_bucket[5m])) by (le)
+              ) > 2.0
+            for: 10m
+            labels:
+              severity: warning
+              component: codec-server
+              team: platform
+            annotations:
+              summary: "High decode latency detected"
+              description: "P95 decode latency is {{ $value }}s (threshold: 2s)"
+
+          # Slow S3 operations
+          - alert: CodecSlowS3Operations
+            expr: |
+              histogram_quantile(0.95,
+                sum(rate(s3_operation_duration_seconds_bucket[5m])) by (le, operation)
+              ) > 3.0
+            for: 10m
+            labels:
+              severity: warning
+              component: codec-server
+              team: platform
+            annotations:
+              summary: "Slow S3 operations detected"
+              description: "P95 {{ $labels.operation }} latency is {{ $value }}s (threshold: 3s)"
+
+      # Resource Usage
+      - name: codec_server_resources
+        interval: 30s
+        rules:
+          # High memory usage
+          - alert: CodecHighMemoryUsage
+            expr: |
+              (
+                container_memory_working_set_bytes{pod=~"codec-server-.*"} /
+                container_spec_memory_limit_bytes{pod=~"codec-server-.*"}
+              ) > 0.85
+            for: 10m
+            labels:
+              severity: warning
+              component: codec-server
+              team: platform
+            annotations:
+              summary: "High memory usage in codec server"
+              description: "Memory usage is {{ $value | humanizePercentage }} on {{ $labels.pod }}"
+
+          # Critical memory usage
+          - alert: CodecCriticalMemoryUsage
+            expr: |
+              (
+                container_memory_working_set_bytes{pod=~"codec-server-.*"} /
+                container_spec_memory_limit_bytes{pod=~"codec-server-.*"}
+              ) > 0.95
+            for: 5m
+            labels:
+              severity: critical
+              component: codec-server
+              team: platform
+            annotations:
+              summary: "CRITICAL: Very high memory usage"
+              description: "Memory usage is {{ $value | humanizePercentage }} on {{ $labels.pod }} - risk of OOM"
+
+          # High CPU usage
+          - alert: CodecHighCPUUsage
+            expr: |
+              rate(container_cpu_usage_seconds_total{pod=~"codec-server-.*"}[5m]) > 0.8
+            for: 15m
+            labels:
+              severity: warning
+              component: codec-server
+              team: platform
+            annotations:
+              summary: "High CPU usage in codec server"
+              description: "CPU usage is {{ $value | humanizePercentage }} on {{ $labels.pod }}"
+
+          # Pod restarts
+          - alert: CodecFrequentRestarts
+            expr: rate(kube_pod_container_status_restarts_total{pod=~"codec-server-.*"}[1h]) > 0.1
+            for: 5m
+            labels:
+              severity: warning
+              component: codec-server
+              team: platform
+            annotations:
+              summary: "Codec server pod restarting frequently"
+              description: "Pod {{ $labels.pod }} has restarted {{ $value }} times in the last hour"
+
+      # Traffic Patterns
+      - name: codec_server_traffic
+        interval: 30s
+        rules:
+          # Unusual traffic spike
+          - alert: CodecTrafficSpike
+            expr: |
+              (
+                sum(rate(codec_encode_requests_total[5m])) +
+                sum(rate(codec_decode_requests_total[5m]))
+              ) > (
+                sum(rate(codec_encode_requests_total[1h] offset 1h)) +
+                sum(rate(codec_decode_requests_total[1h] offset 1h))
+              ) * 3
+            for: 10m
+            labels:
+              severity: info
+              component: codec-server
+              team: platform
+            annotations:
+              summary: "Unusual traffic spike detected"
+              description: "Current request rate is 3x higher than usual: {{ $value }} req/s"
+
+          # No traffic (potential issue)
+          - alert: CodecNoTraffic
+            expr: |
+              (
+                sum(rate(codec_encode_requests_total[10m])) +
+                sum(rate(codec_decode_requests_total[10m]))
+              ) == 0
+            for: 30m
+            labels:
+              severity: info
+              component: codec-server
+              team: platform
+            annotations:
+              summary: "No traffic to codec server"
+              description: "No requests received in the last 30 minutes - potential upstream issue"
+
+      # Data Anomalies
+      - name: codec_server_data_anomalies
+        interval: 60s
+        rules:
+          # Unusually large payload
+          - alert: CodecUnusualPayloadSize
+            expr: max(codec_largest_payload_bytes) > 100000000
+            for: 5m
+            labels:
+              severity: info
+              component: codec-server
+              team: platform
+            annotations:
+              summary: "Unusually large payload detected"
+              description: "Largest payload in last 5m: {{ $value | humanize }}B (100MB threshold)"
+
+          # High S3 storage usage rate
+          - alert: CodecHighS3StorageRate
+            expr: |
+              sum(rate(s3_bytes_uploaded_total[1h])) > 1073741824
+            for: 1h
+            labels:
+              severity: info
+              component: codec-server
+              team: platform
+            annotations:
+              summary: "High S3 storage usage rate"
+              description: "Uploading {{ $value | humanize }}B/s to S3 over last hour (1GB/s threshold)"
+
+      # Cleanup Worker Alerts
+      - name: cleanup_worker_health
+        interval: 60s
+        rules:
+          # Cleanup worker down
+          - alert: CleanupWorkerDown
+            expr: up{job="cleanup-worker"} == 0
+            for: 5m
+            labels:
+              severity: warning
+              component: cleanup-worker
+              team: platform
+            annotations:
+              summary: "Cleanup worker is down"
+              description: "Cleanup worker has been unavailable for 5 minutes - old payloads may accumulate"
+
+          # High cleanup errors
+          - alert: CleanupWorkerErrors
+            expr: rate(cleanup_errors_total[30m]) > 0.1
+            for: 1h
+            labels:
+              severity: warning
+              component: cleanup-worker
+              team: platform
+            annotations:
+              summary: "High cleanup error rate"
+              description: "Cleanup worker error rate: {{ $value }} errors/s"
