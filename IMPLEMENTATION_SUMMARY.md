@@ -502,3 +502,141 @@ Following the initial implementation, a comprehensive production readiness revie
 - Perform load testing to validate timeout values
 
 All improvements committed to branch: `claude/plan-large-files-codec-01BTb9AYhu5wJZEiSZJH8XmF`
+
+---
+
+## 🔐 Phase 2: Advanced Security Features - COMPLETED
+
+Following the Phase 1 & 2 critical fixes, additional security hardening has been implemented to protect against unauthorized access and common attacks.
+
+### ✅ TLS/HTTPS Support
+
+**Encryption for all traffic:**
+- Optional TLS for both gRPC and HTTP servers
+- Minimum TLS version: 1.2
+- Strong cipher suites (AES-256-GCM, AES-128-GCM with ECDHE)
+- Configurable via environment variables
+- Protects against MITM and eavesdropping attacks
+
+**Configuration:**
+```bash
+CODEC_TLS_ENABLED=true
+CODEC_TLS_CERT_FILE=/path/to/cert.pem
+CODEC_TLS_KEY_FILE=/path/to/key.pem
+```
+
+### ✅ API Key Authentication
+
+**Multi-protocol authentication:**
+- HTTP authentication via middleware
+- gRPC authentication via interceptor
+- Supports multiple header formats:
+  - `X-API-Key: <key>`
+  - `Authorization: Bearer <key>`
+  - gRPC metadata: `x-api-key` or `authorization`
+
+**Features:**
+- Protects all endpoints except `/health`
+- Returns HTTP 401 / gRPC UNAUTHENTICATED on invalid key
+- Logs unauthorized access attempts
+- Optional (disabled when not configured)
+
+**Configuration:**
+```bash
+CODEC_API_KEY=your-secret-api-key-here
+```
+
+### ✅ Rate Limiting
+
+**IP-based rate limiting:**
+- Token bucket algorithm using `golang.org/x/time/rate`
+- Per-IP tracking and limiting
+- Automatic cleanup of stale limiters (hourly)
+- Protects against DoS and brute-force attacks
+
+**Configuration:**
+```bash
+RATE_LIMIT_RPS=100    # Requests per second (default: 100)
+RATE_LIMIT_BURST=200  # Burst allowance (default: 200)
+```
+
+**Features:**
+- Returns HTTP 429 Too Many Requests when limit exceeded
+- Skips /health endpoint (for load balancer checks)
+- Supports reverse proxy headers (X-Forwarded-For, X-Real-IP)
+- Configurable limits with validation (RPS: 0-10000, Burst: 1-20000)
+
+### 📊 Security Impact Summary
+
+| Attack Vector | Before | After |
+|--------------|--------|-------|
+| Man-in-the-Middle | Vulnerable | Protected (TLS) |
+| Eavesdropping | Plaintext | Encrypted (TLS) |
+| Unauthorized Access | Open | Blocked (API Key) |
+| Brute Force | Vulnerable | Rate Limited |
+| DoS Attacks | Vulnerable | Rate Limited |
+| Replay Attacks | Vulnerable | Mitigated (TLS + Auth) |
+
+### 🎯 Updated Production Readiness Status
+
+**Phase 2 Security Complete**: ✅
+- ✅ TLS encryption for all traffic
+- ✅ API key authentication (HTTP + gRPC)
+- ✅ IP-based rate limiting
+- ✅ Configurable security levels
+- ✅ Backwards compatible (all features optional)
+- ✅ Zero-trust networking ready
+
+**Deployment Modes:**
+
+**Development** (default):
+```bash
+# No TLS, no auth, standard rate limits
+# For local development and testing
+```
+
+**Staging**:
+```bash
+CODEC_TLS_ENABLED=true  # Self-signed cert OK
+CODEC_API_KEY=staging-key
+RATE_LIMIT_RPS=100
+```
+
+**Production**:
+```bash
+CODEC_TLS_ENABLED=true
+CODEC_TLS_CERT_FILE=/etc/codec/tls/cert.pem
+CODEC_TLS_KEY_FILE=/etc/codec/tls/key.pem
+CODEC_API_KEY=${SECRET_API_KEY}  # From secrets manager
+RATE_LIMIT_RPS=500
+RATE_LIMIT_BURST=1000
+```
+
+### 📝 Quick Start with Security
+
+**1. Generate TLS Certificates** (development):
+```bash
+openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes -subj "/CN=localhost"
+```
+
+**2. Generate API Key**:
+```bash
+openssl rand -base64 32
+```
+
+**3. Start Secured Server**:
+```bash
+export CODEC_TLS_ENABLED=true
+export CODEC_TLS_CERT_FILE=./cert.pem
+export CODEC_TLS_KEY_FILE=./key.pem
+export CODEC_API_KEY=<generated-key>
+./codec-server
+```
+
+**4. Test with cURL**:
+```bash
+curl -k https://localhost:8080/health  # Health check (no auth required)
+curl -k -H "X-API-Key: <your-key>" https://localhost:8080/encode -d '{...}'
+```
+
+All Phase 2 security features committed to branch: `claude/plan-large-files-codec-01BTb9AYhu5wJZEiSZJH8XmF`
