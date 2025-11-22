@@ -214,6 +214,206 @@ env:
 
 **Note**: Prefer IAM roles over access keys in production.
 
+## Security Features (TLS & Authentication)
+
+The codec server now supports TLS encryption and API key authentication for production deployments.
+
+### Setup TLS and API Key
+
+#### 1. Create TLS Secret
+
+**Option A: Self-Signed Certificate (Development/Staging)**
+
+```bash
+# Generate certificate
+openssl req -x509 -newkey rsa:4096 \
+  -keyout /tmp/key.pem \
+  -out /tmp/cert.pem \
+  -days 365 -nodes \
+  -subj "/CN=codec-server.temporal.svc.cluster.local"
+
+# Create Kubernetes secret
+kubectl create secret tls codec-server-tls \
+  --cert=/tmp/cert.pem \
+  --key=/tmp/key.pem \
+  -n temporal
+
+# Clean up
+rm /tmp/key.pem /tmp/cert.pem
+```
+
+**Option B: cert-manager (Production)**
+
+```bash
+# Install cert-manager (if not already installed)
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
+
+# Create Certificate resource
+kubectl apply -f - <<EOF
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: codec-server-cert
+  namespace: temporal
+spec:
+  secretName: codec-server-tls
+  duration: 2160h # 90 days
+  renewBefore: 360h # 15 days
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - codec-server.temporal.svc.cluster.local
+EOF
+```
+
+#### 2. Create API Key Secret
+
+```bash
+# Generate and create secret in one command
+kubectl create secret generic codec-server-api-key \
+  --from-literal=api-key=$(openssl rand -base64 32) \
+  -n temporal
+
+# Retrieve the API key (for clients)
+kubectl get secret codec-server-api-key -n temporal \
+  -o jsonpath='{.data.api-key}' | base64 -d && echo
+```
+
+#### 3. Apply Secrets Manifest
+
+```bash
+# Apply the secrets template (update with real values first)
+kubectl apply -f k8s/codec-server-secrets.yaml -n temporal
+```
+
+#### 4. Enable Security in ConfigMap
+
+The security features are already configured in `codec-server-deployment.yaml`:
+
+```yaml
+data:
+  CODEC_TLS_ENABLED: "true"
+  CODEC_TLS_CERT_FILE: "/etc/codec-server/tls/tls.crt"
+  CODEC_TLS_KEY_FILE: "/etc/codec-server/tls/tls.key"
+  RATE_LIMIT_RPS: "500"
+  RATE_LIMIT_BURST: "1000"
+```
+
+To disable security features (development only):
+```yaml
+data:
+  CODEC_TLS_ENABLED: "false"
+  # Remove or comment out API key env var in deployment
+```
+
+### Testing Secured Deployment
+
+```bash
+# Port-forward the service
+kubectl port-forward -n temporal svc/codec-server 8080:8080
+
+# Get the API key
+API_KEY=$(kubectl get secret codec-server-api-key -n temporal -o jsonpath='{.data.api-key}' | base64 -d)
+
+# Test health endpoint (no auth required)
+curl -k https://localhost:8080/health
+
+# Test metrics endpoint (requires auth)
+curl -k -H "X-API-Key: $API_KEY" https://localhost:8080/metrics
+
+# Test with Bearer token format
+curl -k -H "Authorization: Bearer $API_KEY" https://localhost:8080/metrics
+```
+
+### Client Configuration
+
+Update your Temporal workers to use TLS and API key:
+
+**Go Worker:**
+```go
+import "google.golang.org/grpc/credentials"
+
+// Load TLS credentials
+creds, err := credentials.NewClientTLSFromFile("cert.pem", "")
+
+// Create gRPC connection with TLS and API key
+conn, err := grpc.Dial(
+    "codec-server.temporal.svc.cluster.local:9090",
+    grpc.WithTransportCredentials(creds),
+    grpc.WithPerRPCCredentials(&apiKeyAuth{apiKey: "your-api-key"}),
+)
+```
+
+**TypeScript Worker:**
+```typescript
+// HTTP client with TLS and API key
+const response = await fetch('https://codec-server.temporal.svc.cluster.local:8080/encode', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-API-Key': process.env.CODEC_API_KEY,
+  },
+  body: JSON.stringify(request),
+});
+```
+
+### Rotating Secrets
+
+**Rotate API Key:**
+```bash
+# Create new API key
+kubectl create secret generic codec-server-api-key \
+  --from-literal=api-key=$(openssl rand -base64 32) \
+  -n temporal \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# Restart pods to pick up new key
+kubectl rollout restart deployment codec-server -n temporal
+```
+
+**Rotate TLS Certificate:**
+```bash
+# With cert-manager, certificates auto-rotate
+# For manual certs:
+kubectl delete secret codec-server-tls -n temporal
+# Recreate with new certificate
+kubectl create secret tls codec-server-tls --cert=new-cert.pem --key=new-key.pem -n temporal
+kubectl rollout restart deployment codec-server -n temporal
+```
+
+### Security Best Practices
+
+1. **Always enable TLS in production** - Use cert-manager for automatic rotation
+2. **Rotate API keys monthly** - Automate with CronJob or external secrets operator
+3. **Use strong rate limits** - Adjust `RATE_LIMIT_RPS` based on your load
+4. **Monitor unauthorized requests** - Check logs for authentication failures
+5. **Network policies** - Restrict access to codec server from only Temporal workers
+6. **Secrets management** - Use External Secrets Operator or AWS Secrets Manager
+
+### Deployment Modes
+
+**Development (No Security):**
+```yaml
+CODEC_TLS_ENABLED: "false"
+# No API key configured
+```
+
+**Staging (Basic Security):**
+```yaml
+CODEC_TLS_ENABLED: "true"  # Self-signed OK
+# API key from Kubernetes secret
+RATE_LIMIT_RPS: "100"
+```
+
+**Production (Full Security):**
+```yaml
+CODEC_TLS_ENABLED: "true"  # CA-signed cert from cert-manager
+# API key from external secrets manager
+RATE_LIMIT_RPS: "500"
+RATE_LIMIT_BURST: "1000"
+```
+
 ## Troubleshooting
 
 ### Check Pod Status
