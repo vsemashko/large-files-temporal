@@ -87,7 +87,7 @@ jobs:
           go tool cover -func=coverage.out
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           files: ./codec-server/coverage.out
           flags: codec-server
@@ -117,7 +117,7 @@ jobs:
           go test -v -race -coverprofile=coverage.out ./...
 
       - name: Upload coverage
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           files: ./cleanup-worker/coverage.out
           flags: cleanup-worker
